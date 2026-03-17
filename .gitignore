@@ -1,0 +1,62 @@
+# CARLA 바이너리 & 대용량 파일
+CarlaUE4/
+Engine/
+HDMaps/
+Import/
+Tools/
+Co-Simulation/
+Dockerfile
+ImportAssets.sh
+CarlaUE4.sh
+Manifest_DebugFiles_Linux.txt
+CHANGELOG
+LICENSE
+VERSION
+
+# 하위 git 저장소
+Scenic/.git/
+Plugins/.git/
+
+# Plugins (외부 클론)
+Plugins/
+
+# PythonAPI (기본 CARLA 포함)
+PythonAPI/
+
+# Scenic 원본 소스 (외부 레포, 커스텀 폴더만 추적)
+Scenic/.git/
+Scenic/.github/
+Scenic/.coveragerc
+Scenic/.git-blame-ignore-revs
+Scenic/.pre-commit-config.yaml
+Scenic/.readthedocs.yaml
+Scenic/.gitignore
+Scenic/CODE_OF_CONDUCT.md
+Scenic/Makefile
+Scenic/README.md
+Scenic/assets/
+Scenic/codecov.yml
+Scenic/docs/
+Scenic/examples/
+Scenic/pyproject.toml
+Scenic/src/
+Scenic/tests/
+Scenic/tools/
+Scenic/tox.ini
+Scenic/toxfile.py
+
+# 기타
+.egg
+
+# Python 환경
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# IDE
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
