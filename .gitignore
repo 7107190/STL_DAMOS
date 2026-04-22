@@ -43,6 +43,7 @@ Scenic/.gitignore
 Scenic/CODE_OF_CONDUCT.md
 Scenic/Makefile
 Scenic/README.md
+!Scenic/README.md
 Scenic/assets/
 Scenic/codecov.yml
 Scenic/docs/
@@ -56,6 +57,11 @@ Scenic/toxfile.py
 
 # 기타
 .egg
+_DAMOS/logs/
+_DAMOS/reports/
+_DAMOS/3d_model/
+*.log
+*.tmp
 
 # Python 환경
 venv/

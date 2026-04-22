@@ -22,7 +22,7 @@ Compatibility links still exist for older commands:
 - `/home/vvu/vv/UnrealEngine_4.26`
 - `/home/vvu/vv/Carla-0.9.16/_DAMOS`
 
-`Scenic/` inside the source tree is a symlink back to the packaged Scenic checkout so
+`Scenic/` inside the source tree is the Scenic checkout/path used by the wrappers so
 map assets and scenario-relative paths still work.
 
 ## Implemented Custom Walkers
