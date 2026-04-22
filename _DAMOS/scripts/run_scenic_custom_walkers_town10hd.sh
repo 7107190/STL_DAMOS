@@ -1,0 +1,362 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+ENV_SH="$ROOT/_DAMOS/custom_walkers/ue4_env.sh"
+PYTHON_BIN="${CARLA_PYTHON_BIN:-/home/vvu/anaconda3/envs/carla4/bin/python}"
+RUNNER="$SCRIPT_DIR/run_scenic_with_custom_walkers.py"
+LOG_DIR="$ROOT/_DAMOS/logs"
+LOG_FILE="$LOG_DIR/scenic_custom_walkers_town10hd.log"
+UPROJECT="$ROOT/Unreal/CarlaUE4/CarlaUE4.uproject"
+MAP="/Game/Carla/Maps/Town10HD_Opt"
+SCENIC_CARLA_MAP="Town10HD_Opt"
+SCENIC_XODR="$ROOT/Scenic/Maps/Town10HD_Opt.xodr"
+WEATHER="ClearNoon"
+
+PORT=2000
+HEADLESS=0
+RESTART=0
+SCENIC_TIME=8
+N_SCENARIOS=1
+MIN_MOVE_METERS=0.5
+OBSERVER_MODE=1
+MAX_OBSERVER_ANCHOR_DISTANCE=22.0
+MAX_OBSERVER_FACING_ERROR_DEGREES=35.0
+MAX_DELIVERYBOTS=2
+MAX_HUMANOIDS=2
+SERVER_WAIT_SECONDS=180
+SCENIC_TIMEOUT_SECONDS=60
+RESX=960
+RESY=540
+SERVER_PID=""
+SERVER_STATE="unknown"
+
+usage() {
+  cat <<'EOF'
+Usage: run_scenic_custom_walkers_town10hd.sh [options]
+
+Options:
+  --port N               CARLA RPC port (default: 2000)
+  --scenic-time N        Scenic simulation time cap in seconds (default: 8)
+  --n-scenarios N        N_SCENARIOS override for S_.scenic (default: 1)
+  --observer-mode        Place custom walkers as static observers (default)
+  --walker-mode          Route custom walkers and require movement
+  --min-move-meters N    Walker-mode movement requirement in meters
+  --max-observer-anchor-distance N
+                          Max observer-to-anchor distance in meters (default: 22)
+  --max-observer-facing-error-degrees N
+                          Max observer yaw error toward anchor (default: 35)
+  --max-deliverybots N   Max number of deliverybot walkers to inject (default: 2)
+  --max-humanoids N      Max number of humanoid walkers to inject (default: 2)
+  --scenic-timeout N     Timeout passed to Scenic's CARLA model (default: 60)
+  --map-name NAME        CARLA map name for server and Scenic (default: Town10HD_Opt)
+  --map-xodr PATH        Scenic .xodr path override
+  --weather NAME         Scenic weather override (default: ClearNoon)
+  --resx N               GUI width when not headless (default: 960)
+  --resy N               GUI height when not headless (default: 540)
+  --restart              Restart an existing matching Town10HD source server
+  --headless             Start server with -nullrhi -nosound
+  -h, --help             Show this help
+EOF
+}
+
+any_listener_pid() {
+  ss -ltnp 2>/dev/null | awk -v port=":$PORT" '$4 ~ port"$"' | sed -n 's/.*pid=\([0-9]\+\).*/\1/p' | head -n 1
+}
+
+listener_pid() {
+  ss -ltnp 2>/dev/null | awk -v port=":$PORT" '$4 ~ port"$" && $0 ~ /UE4Editor/' | sed -n 's/.*pid=\([0-9]\+\).*/\1/p' | head -n 1
+}
+
+process_cmdline() {
+  local pid="$1"
+  tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null || true
+}
+
+is_ignorable_listener() {
+  local pid="$1"
+  local cmdline
+  cmdline="$(process_cmdline "$pid")"
+  [[ "$cmdline" == *"CrashReportClient"* ]]
+}
+
+is_same_source_server() {
+  local pid="$1"
+  local cmdline
+  cmdline="$(process_cmdline "$pid")"
+  [[ "$cmdline" == *"$UPROJECT"* ]]
+}
+
+is_matching_source_server() {
+  local pid="$1"
+  local cmdline
+  cmdline="$(process_cmdline "$pid")"
+  [[ "$cmdline" == *"$UPROJECT"* ]] && [[ "$cmdline" == *"$MAP"* ]] && [[ "$cmdline" == *"-carla-rpc-port=$PORT"* ]]
+}
+
+wait_for_port_to_clear() {
+  for _ in $(seq 1 30); do
+    if [[ -z "$(any_listener_pid)" ]]; then
+      return 0
+    fi
+    sleep 1
+  done
+  echo "Port $PORT did not clear in time." >&2
+  return 1
+}
+
+stop_server_pid() {
+  local pid="$1"
+  if kill -0 "$pid" 2>/dev/null; then
+    kill "$pid" 2>/dev/null || true
+    for _ in $(seq 1 10); do
+      if ! kill -0 "$pid" 2>/dev/null; then
+        break
+      fi
+      sleep 1
+    done
+  fi
+  if kill -0 "$pid" 2>/dev/null; then
+    echo "Server pid $pid did not exit after SIGTERM; sending SIGKILL."
+    kill -9 "$pid" 2>/dev/null || true
+  fi
+  wait_for_port_to_clear
+}
+
+cleanup_started_server() {
+  local status=$?
+  if [[ "${SERVER_STATE:-unknown}" == "started" && -n "${SERVER_PID:-}" ]]; then
+    echo "Stopping $SCENIC_CARLA_MAP source server on port $PORT (pid=$SERVER_PID)."
+    stop_server_pid "$SERVER_PID" || true
+  fi
+  return "$status"
+}
+
+wait_for_server_rpc() {
+  local pid="$1"
+  for _ in $(seq 1 "$SERVER_WAIT_SECONDS"); do
+    if "$PYTHON_BIN" - <<PY >/dev/null 2>&1
+import sys
+import carla
+
+client = carla.Client("127.0.0.1", int("$PORT"))
+client.set_timeout(2.0)
+world = client.get_world()
+name = world.get_map().name.split("/")[-1]
+if name != "$SCENIC_CARLA_MAP":
+    raise RuntimeError(f"unexpected map {name}")
+PY
+    then
+      return 0
+    fi
+    if ! kill -0 "$pid" 2>/dev/null; then
+      echo "Source server exited before CARLA RPC became ready on port $PORT." >&2
+      tail -n 40 "$LOG_FILE" >&2 || true
+      return 1
+    fi
+    sleep 1
+  done
+  echo "Timed out waiting for CARLA RPC readiness on port $PORT." >&2
+  tail -n 40 "$LOG_FILE" >&2 || true
+  return 1
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --port)
+      PORT="$2"
+      shift 2
+      ;;
+    --scenic-time)
+      SCENIC_TIME="$2"
+      shift 2
+      ;;
+    --n-scenarios)
+      N_SCENARIOS="$2"
+      shift 2
+      ;;
+    --min-move-meters)
+      MIN_MOVE_METERS="$2"
+      shift 2
+      ;;
+    --observer-mode)
+      OBSERVER_MODE=1
+      shift
+      ;;
+    --walker-mode)
+      OBSERVER_MODE=0
+      shift
+      ;;
+    --max-observer-anchor-distance)
+      MAX_OBSERVER_ANCHOR_DISTANCE="$2"
+      shift 2
+      ;;
+    --max-observer-facing-error-degrees)
+      MAX_OBSERVER_FACING_ERROR_DEGREES="$2"
+      shift 2
+      ;;
+    --max-deliverybots)
+      MAX_DELIVERYBOTS="$2"
+      shift 2
+      ;;
+    --max-humanoids)
+      MAX_HUMANOIDS="$2"
+      shift 2
+      ;;
+    --scenic-timeout)
+      SCENIC_TIMEOUT_SECONDS="$2"
+      shift 2
+      ;;
+    --map-name)
+      SCENIC_CARLA_MAP="$2"
+      MAP="/Game/Carla/Maps/$2"
+      shift 2
+      ;;
+    --map-xodr)
+      SCENIC_XODR="$2"
+      shift 2
+      ;;
+    --weather)
+      WEATHER="$2"
+      shift 2
+      ;;
+    --resx)
+      RESX="$2"
+      shift 2
+      ;;
+    --resy)
+      RESY="$2"
+      shift 2
+      ;;
+    --restart)
+      RESTART=1
+      shift
+      ;;
+    --headless)
+      HEADLESS=1
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
+
+if [[ ! -f "$ENV_SH" ]]; then
+  echo "Missing environment script: $ENV_SH" >&2
+  exit 1
+fi
+
+if [[ ! -x "$PYTHON_BIN" ]]; then
+  echo "Missing Python interpreter: $PYTHON_BIN" >&2
+  exit 1
+fi
+
+source "$ENV_SH"
+
+export DISPLAY="${DISPLAY:-:0}"
+export XAUTHORITY="${XAUTHORITY:-/run/user/1000/gdm/Xauthority}"
+
+trap cleanup_started_server EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+mkdir -p "$LOG_DIR"
+touch "$LOG_FILE"
+
+existing_any_pid="$(any_listener_pid)"
+if [[ -n "$existing_any_pid" ]] && is_ignorable_listener "$existing_any_pid"; then
+  echo "Removing stale CrashReportClient on port $PORT (pid=$existing_any_pid)."
+  stop_server_pid "$existing_any_pid"
+  existing_any_pid=""
+fi
+
+existing_pid="$(listener_pid)"
+if [[ -n "$existing_pid" ]]; then
+  if is_matching_source_server "$existing_pid"; then
+    if [[ "$RESTART" -eq 1 ]]; then
+      echo "Restarting matching source server on port $PORT (pid=$existing_pid)."
+      stop_server_pid "$existing_pid"
+      existing_pid=""
+    else
+      SERVER_PID="$existing_pid"
+      SERVER_STATE="reused"
+    fi
+  elif is_same_source_server "$existing_pid"; then
+    if [[ "$RESTART" -eq 1 ]]; then
+      echo "Restarting source server on port $PORT with map $SCENIC_CARLA_MAP (pid=$existing_pid)."
+      stop_server_pid "$existing_pid"
+      existing_pid=""
+    else
+      echo "Port $PORT is already used by this source build, but not with $SCENIC_CARLA_MAP." >&2
+      echo "Use --restart to replace it with the Scenic integration server for $SCENIC_CARLA_MAP." >&2
+      exit 1
+    fi
+  else
+    echo "Port $PORT is already in use by another process." >&2
+    exit 1
+  fi
+elif [[ -n "$existing_any_pid" ]]; then
+  echo "Port $PORT is already in use by another process." >&2
+  exit 1
+fi
+
+if [[ -z "$SERVER_PID" ]]; then
+  SERVER_STATE="started"
+  echo "Starting $SCENIC_CARLA_MAP source server on port $PORT..."
+  server_cmd=(
+    "$UE4_ROOT/Engine/Binaries/Linux/UE4Editor"
+    "$UPROJECT"
+    "$MAP"
+    -game
+    "-carla-rpc-port=$PORT"
+    -quality-level=Low
+  )
+
+  if [[ "$HEADLESS" -eq 1 ]]; then
+    server_cmd+=(-nullrhi -nosound)
+  else
+    server_cmd+=(-windowed "-ResX=$RESX" "-ResY=$RESY")
+  fi
+
+  nohup setsid "${server_cmd[@]}" </dev/null >>"$LOG_FILE" 2>&1 &
+  SERVER_PID="$!"
+  wait_for_server_rpc "$SERVER_PID"
+fi
+
+echo "Server state: $SERVER_STATE"
+echo "Server pid: $SERVER_PID"
+echo "Log file: $LOG_FILE"
+
+mode_args=(--observer-mode)
+if [[ "$OBSERVER_MODE" -eq 0 ]]; then
+  mode_args=(--walker-mode)
+fi
+
+set +e
+"$PYTHON_BIN" "$RUNNER" \
+  --host 127.0.0.1 \
+  --port "$PORT" \
+  --wait-for-server-seconds "$SERVER_WAIT_SECONDS" \
+  --scenic-time "$SCENIC_TIME" \
+  --n-scenarios "$N_SCENARIOS" \
+  "${mode_args[@]}" \
+  --min-move-meters "$MIN_MOVE_METERS" \
+  --max-observer-anchor-distance "$MAX_OBSERVER_ANCHOR_DISTANCE" \
+  --max-observer-facing-error-degrees "$MAX_OBSERVER_FACING_ERROR_DEGREES" \
+  --max-deliverybots "$MAX_DELIVERYBOTS" \
+  --max-humanoids "$MAX_HUMANOIDS" \
+  --scenic-timeout-seconds "$SCENIC_TIMEOUT_SECONDS" \
+  --carla-map "$SCENIC_CARLA_MAP" \
+  --map-xodr "$SCENIC_XODR" \
+  --weather "$WEATHER"
+runner_status=$?
+set -e
+exit "$runner_status"
