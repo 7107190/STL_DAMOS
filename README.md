@@ -18,15 +18,16 @@ Scenic vendor checkout.
 | Track 1 | Real-time M2X integration simulation, 18-second loop target |
 | Track 2 | Offline 5-second trajectory prediction using CARLA GT |
 | Custom walkers | Static observer nodes by default, not moving actors |
-| Scenic abnormal events | Spawned through `_DAMOS/_scenarios/S_.scenic` |
+| Scenic abnormal events | Spawned through `Carla-0.9.16-source/_DAMOS/_scenarios/S_.scenic` |
 
 ## Repository Layout
 
 | Path | Purpose |
 |---|---|
-| `_DAMOS/` | Active DAMOS scripts, Scenic scenario set, custom walker runtime docs |
-| `Unreal/CarlaUE4/Plugins/Carla/Source/Carla/Damos/` | DAMOS Unreal source overlay for custom walker support |
-| `Scenic/Maps/` | OpenDRIVE maps used by the Scenic wrappers |
+| `Carla-0.9.16-source/_DAMOS/` | Active DAMOS scripts, Scenic scenario set, custom walker runtime docs |
+| `Carla-0.9.16-source/Unreal/CarlaUE4/Plugins/Carla/Source/Carla/Damos/` | DAMOS Unreal source overlay for custom walker support |
+| `Carla-0.9.16-source/Scenic/Maps/` | OpenDRIVE maps used by the Scenic wrappers |
+| `UnrealEngine_4.26/README.md` | Placeholder for the external Unreal Engine dependency |
 | `docs/` | Project direction, vvu workspace notes, observer-mode design |
 | `archive/` | Legacy Scenic scripts, old scenario copies, and old run records |
 
@@ -35,7 +36,7 @@ Scenic vendor checkout.
 Run this from the vvu CARLA source-build repository root:
 
 ```bash
-_DAMOS/scripts/run_scenic_custom_walkers_town10hd.sh --restart --headless
+Carla-0.9.16-source/_DAMOS/scripts/run_scenic_custom_walkers_town10hd.sh --restart --headless
 ```
 
 The default mode is observer mode:
@@ -68,8 +69,8 @@ See [docs/observer_mode.md](docs/observer_mode.md) for details.
 | Full `Carla-0.9.16-source` checkout | Vendor/source build dependency, too large and not DAMOS-specific |
 | Full `UnrealEngine_4.26` checkout | External engine dependency |
 | Full Scenic source tree | External dependency; only maps/scenarios relevant to DAMOS are tracked |
-| `_DAMOS/logs` and `_DAMOS/reports` | Generated runtime artifacts |
-| `_DAMOS/3d_model` source assets | Large model/import assets, kept on vvu unless explicitly packaged |
+| `Carla-0.9.16-source/_DAMOS/logs` and `reports` | Generated runtime artifacts |
+| `Carla-0.9.16-source/_DAMOS/3d_model` source assets | Large model/import assets, kept on vvu unless explicitly packaged |
 
 ## Documentation
 

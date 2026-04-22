@@ -9,9 +9,10 @@ CARLA/Unreal/Scenic vendor checkout.
 |---|---|---|
 | `README.md` | Active | Top-level orientation and run command |
 | `CLAUDE.md` | Active | AI-assisted coding guardrails |
-| `_DAMOS/` | Active | Project runtime scripts and Scenic scenarios |
-| `Scenic/Maps/` | Active asset | OpenDRIVE maps required by Scenic wrappers |
-| `Unreal/CarlaUE4/Plugins/Carla/Source/Carla/Damos/` | Active source overlay | DAMOS custom walker Unreal code |
+| `Carla-0.9.16-source/_DAMOS/` | Active | Project runtime scripts and Scenic scenarios |
+| `Carla-0.9.16-source/Scenic/Maps/` | Active asset | OpenDRIVE maps required by Scenic wrappers |
+| `Carla-0.9.16-source/Unreal/CarlaUE4/Plugins/Carla/Source/Carla/Damos/` | Active source overlay | DAMOS custom walker Unreal code |
+| `UnrealEngine_4.26/README.md` | Placeholder | Documents the external engine dependency |
 | `docs/` | Active docs | Design and workspace documentation |
 | `archive/` | Historical | Old Scenic experiments and run records |
 
@@ -19,9 +20,9 @@ CARLA/Unreal/Scenic vendor checkout.
 
 | Archive Path | Contents | Why Archived |
 |---|---|---|
-| `archive/legacy_scenic_python/` | Old standalone CARLA/Scenic Python scripts | Superseded by `_DAMOS/scripts` |
+| `archive/legacy_scenic_python/` | Old standalone CARLA/Scenic Python scripts | Superseded by `Carla-0.9.16-source/_DAMOS/scripts` |
 | `archive/legacy_scenic_records/` | Old Scenic run record files | Generated/reference artifacts, not runtime source |
-| `archive/legacy_scenic_scenarios/` | Old root `Scenic/_scenarios` copy | Superseded by `_DAMOS/_scenarios` with active path handling |
+| `archive/legacy_scenic_scenarios/` | Old root `Scenic/_scenarios` copy | Superseded by `Carla-0.9.16-source/_DAMOS/_scenarios` with active path handling |
 
 Archived files are kept for traceability. New implementation should not import
 or run from `archive/`.
@@ -30,11 +31,11 @@ or run from `archive/`.
 
 When syncing from vvu to GitHub, include:
 
-- `_DAMOS/README.md`
-- `_DAMOS/scripts`
-- `_DAMOS/_scenarios`
-- `_DAMOS/custom_walkers`
-- `Unreal/CarlaUE4/Plugins/Carla/Source/Carla/Damos`
+- `Carla-0.9.16-source/_DAMOS/README.md`
+- `Carla-0.9.16-source/_DAMOS/scripts`
+- `Carla-0.9.16-source/_DAMOS/_scenarios`
+- `Carla-0.9.16-source/_DAMOS/custom_walkers`
+- `Carla-0.9.16-source/Unreal/CarlaUE4/Plugins/Carla/Source/Carla/Damos`
 - docs that explain the current direction
 
 Exclude generated outputs and full vendor trees.

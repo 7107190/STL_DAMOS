@@ -36,9 +36,9 @@ is to behave as cooperative observer nodes.
 
 | Responsibility | Current Repo Surface |
 |---|---|
-| CARLA main sync loop | To be attached to `_DAMOS/scripts` or a future main loop module |
-| Actor spawning | `_DAMOS/scripts/custom_walker_runtime.py` |
-| Scenic abnormal scenario execution | `_DAMOS/scripts/run_scenic_custom_walkers_town10hd.sh` |
+| CARLA main sync loop | To be attached to `Carla-0.9.16-source/_DAMOS/scripts` or a future main loop module |
+| Actor spawning | `Carla-0.9.16-source/_DAMOS/scripts/custom_walker_runtime.py` |
+| Scenic abnormal scenario execution | `Carla-0.9.16-source/_DAMOS/scripts/run_scenic_custom_walkers_town10hd.sh` |
 | Six-frame image buffering | Future integration work |
 | Track 2 GT support | Future extraction/export work |
 | Track 1 final rule-based control | Future main loop integration |

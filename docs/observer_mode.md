@@ -24,13 +24,13 @@ main Track 1 behavior.
 Run observer mode:
 
 ```bash
-_DAMOS/scripts/run_scenic_custom_walkers_town10hd.sh --restart --headless
+Carla-0.9.16-source/_DAMOS/scripts/run_scenic_custom_walkers_town10hd.sh --restart --headless
 ```
 
 Run movement smoke test:
 
 ```bash
-_DAMOS/scripts/run_scenic_custom_walkers_town10hd.sh --restart --headless --walker-mode
+Carla-0.9.16-source/_DAMOS/scripts/run_scenic_custom_walkers_town10hd.sh --restart --headless --walker-mode
 ```
 
 ## Observer Metrics

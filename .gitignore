@@ -57,9 +57,9 @@ Scenic/toxfile.py
 
 # 기타
 .egg
-_DAMOS/logs/
-_DAMOS/reports/
-_DAMOS/3d_model/
+Carla-0.9.16-source/_DAMOS/logs/
+Carla-0.9.16-source/_DAMOS/reports/
+Carla-0.9.16-source/_DAMOS/3d_model/
 *.log
 *.tmp
 

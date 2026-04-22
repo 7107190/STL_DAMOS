@@ -9,4 +9,5 @@ runtime path but may still be useful for tracing earlier experiments.
 | `legacy_scenic_records/` | Old Scenic run records |
 | `legacy_scenic_scenarios/` | Previous root `Scenic/_scenarios` copy |
 
-Active development should use `_DAMOS/` and `docs/` instead of this folder.
+Active development should use `Carla-0.9.16-source/_DAMOS/` and `docs/` instead
+of this folder.

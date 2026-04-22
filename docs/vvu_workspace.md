@@ -8,8 +8,8 @@ The active runtime environment is on `vvu`.
 |---|---|---|
 | `/home/vvu/vv/DAMOS` | Top-level runtime workspace | No |
 | `/home/vvu/vv/DAMOS/Carla-0.9.16-source` | Active CARLA source-build repo and DAMOS runtime root | No, only selected overlay files |
-| `/home/vvu/vv/DAMOS/Carla-0.9.16-source/_DAMOS` | Active DAMOS scripts/scenarios/docs | Yes, selected files |
-| `/home/vvu/vv/DAMOS/Carla-0.9.16-source/Scenic` | Scenic checkout/path used by wrappers | Only selected maps/scenarios |
+| `/home/vvu/vv/DAMOS/Carla-0.9.16-source/_DAMOS` | Active DAMOS scripts/scenarios/docs | Yes, mirrored as `Carla-0.9.16-source/_DAMOS` |
+| `/home/vvu/vv/DAMOS/Carla-0.9.16-source/Scenic` | Scenic checkout/path used by wrappers | Selected maps mirrored as `Carla-0.9.16-source/Scenic/Maps` |
 | `/home/vvu/vv/DAMOS/UnrealEngine_4.26` | Unreal Engine dependency | No |
 | `/home/vvu/vv/DAMOS/_archive` | Old packaged/runtime folders | No |
 
@@ -23,7 +23,7 @@ canonical paths above.
 | `Carla-0.9.16-source` | The source-build CARLA tree where custom walker Unreal code and runtime scripts are tested |
 | `UnrealEngine_4.26` | Engine dependency required by the CARLA source build |
 | `Scenic` | Scenic package/maps used to generate abnormal CARLA scenes |
-| `_DAMOS` | Project-specific wrapper scripts, custom walker runtime logic, and active scenario set |
+| `_DAMOS` | Project-specific wrapper scripts, custom walker runtime logic, and active scenario set inside `Carla-0.9.16-source` |
 
 ## Do Not Upload Directly
 
@@ -32,8 +32,8 @@ Do not push these runtime directories wholesale to GitHub:
 - full `Carla-0.9.16-source`
 - full `UnrealEngine_4.26`
 - full Scenic source checkout
-- `_DAMOS/logs`
-- `_DAMOS/reports`
-- `_DAMOS/3d_model`
+- `Carla-0.9.16-source/_DAMOS/logs`
+- `Carla-0.9.16-source/_DAMOS/reports`
+- `Carla-0.9.16-source/_DAMOS/3d_model`
 
 Instead, sync only the source overlay that belongs in this repository.

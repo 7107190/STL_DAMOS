@@ -27,20 +27,26 @@ The active DAMOS folder is:
 /home/vvu/vv/DAMOS/Carla-0.9.16-source/_DAMOS
 ```
 
+In this GitHub repository, that path is mirrored as:
+
+```text
+Carla-0.9.16-source/_DAMOS
+```
+
 ## Validation Before Publishing
 
 Run the checks that match the touched files:
 
 ```bash
-python3 -m py_compile _DAMOS/scripts/*.py
-bash -n _DAMOS/scripts/*.sh
+python3 -m py_compile Carla-0.9.16-source/_DAMOS/scripts/*.py
+bash -n Carla-0.9.16-source/_DAMOS/scripts/*.sh
 git diff --check
 ```
 
 For observer-mode runtime changes, validate on vvu with:
 
 ```bash
-_DAMOS/scripts/run_scenic_custom_walkers_town10hd.sh --restart --headless
+Carla-0.9.16-source/_DAMOS/scripts/run_scenic_custom_walkers_town10hd.sh --restart --headless
 ```
 
 Use `--walker-mode` only when checking that the custom walker assets/controllers
@@ -50,8 +56,8 @@ can still move.
 
 Do not commit generated runtime artifacts:
 
-- `_DAMOS/logs`
-- `_DAMOS/reports`
+- `Carla-0.9.16-source/_DAMOS/logs`
+- `Carla-0.9.16-source/_DAMOS/reports`
 - `__pycache__`
 - `*.pyc`
 - full CARLA/Unreal/Scenic vendor checkouts
