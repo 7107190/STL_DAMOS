@@ -1,7 +1,7 @@
 # Scenic Assets
 
-This directory intentionally keeps only Scenic assets that DAMOS wrappers need
-from the GitHub repository.
+This directory intentionally keeps only the Scenic assets that DAMOS wrappers
+need from the GitHub repository.
 
 | Path | Purpose |
 |---|---|

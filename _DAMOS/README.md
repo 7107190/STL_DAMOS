@@ -1,7 +1,7 @@
 # DAMOS Custom Walkers
 
-This folder contains the DAMOS-specific walker assets, Unreal integration code,
-demo launchers, Scenic integration scripts, and generated reports.
+This folder contains the DAMOS-specific runtime scripts, custom walker helpers,
+Scenic integration launchers, and active scenario definitions.
 
 ## Active Workspace
 

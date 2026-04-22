@@ -1,7 +1,7 @@
 # Archive
 
 This folder keeps legacy material that is no longer part of the active DAMOS
-runtime path.
+runtime path but may still be useful for tracing earlier experiments.
 
 | Path | Contents |
 |---|---|

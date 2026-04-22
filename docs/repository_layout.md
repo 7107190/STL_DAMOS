@@ -1,6 +1,7 @@
 # Repository Layout
 
-This repository is organized as a DAMOS source overlay.
+This repository is organized as a DAMOS source overlay rather than a full
+CARLA/Unreal/Scenic vendor checkout.
 
 ## Active Layout
 

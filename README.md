@@ -5,8 +5,9 @@ autonomous mobility. The project target is to let `ego` and custom mobility
 observers share local information so that abnormal Scenic situations can be
 handled even when the risk is outside ego's direct visible area.
 
-This repository is the source overlay for DAMOS work. It is not a full CARLA,
-Unreal Engine, or Scenic vendor checkout.
+This repository is the source overlay for DAMOS work and the canonical GitHub
+view of the active vvu workspace. It is not a full CARLA, Unreal Engine, or
+Scenic vendor checkout.
 
 ## Current Direction
 

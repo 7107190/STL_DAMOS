@@ -1,7 +1,7 @@
 # DAMOS Unreal Source Overlay
 
 This folder contains the CARLA Unreal-side source overlay for DAMOS custom
-walkers.
+walkers and observer-mode support.
 
 | File | Purpose |
 |---|---|

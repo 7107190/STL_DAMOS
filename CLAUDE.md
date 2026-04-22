@@ -1,6 +1,7 @@
 # DAMOS Assistant Guidelines
 
-These notes keep AI-assisted edits aligned with the current DAMOS direction.
+These notes keep AI-assisted edits aligned with the current DAMOS repository
+layout and project direction.
 
 ## Project Rules
 
