@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 
+import ast
+import re
 import time
-from dataclasses import dataclass
-from math import atan2, degrees, sqrt
+from dataclasses import dataclass, field
+from math import atan2, cos, degrees, radians, sin, sqrt
 
 import carla
 
@@ -11,6 +13,18 @@ DELIVERYBOT_ID = "walker.pedestrian.damos_deliverybot"
 HUMANOID_ID = "walker.pedestrian.damos_humanoid"
 TOWN01_NAME = "Town01"
 CUSTOM_WALKER_ORDER = (DELIVERYBOT_ID, HUMANOID_ID)
+OBSERVER_CAMERA_NAMES = (
+    "cam_front",
+    "cam_front_left",
+    "cam_front_right",
+    "cam_back",
+    "cam_back_left",
+    "cam_back_right",
+)
+SENSOR_CONFIG_LINE_PATTERN = re.compile(
+    r"^sensor : (?P<name>[^,]+) ,bp : ActorBlueprint\(id=(?P<blueprint_id>[^,]+),"
+    r".* transform : (?P<transform>\{.*\})$"
+)
 
 
 @dataclass(frozen=True)
@@ -30,6 +44,15 @@ class CustomWalkerAnchor:
     actor_type_id: str
     label: str
     location: carla.Location
+    anchor_index: int = 0
+    observer_role: str = ""
+
+
+@dataclass(frozen=True)
+class ObserverCameraSpec:
+    name: str
+    blueprint_id: str
+    transform: carla.Transform
 
 
 @dataclass
@@ -39,6 +62,7 @@ class SpawnedWalker:
     controller: carla.Actor
     anchor: CustomWalkerAnchor | None = None
     track_label: str = ""
+    sensors: list[carla.Actor] = field(default_factory=list)
 
 
 CUSTOM_WALKER_SPECS = {
@@ -61,6 +85,57 @@ CUSTOM_WALKER_SPECS = {
         demo_destination=carla.Location(x=82.547691, y=322.888763, z=0.111335),
     ),
 }
+
+DEFAULT_OBSERVER_CAMERA_SPECS = (
+    ObserverCameraSpec(
+        name="cam_front",
+        blueprint_id="sensor.camera.rgb",
+        transform=carla.Transform(
+            carla.Location(x=0.0, y=0.0, z=1.5),
+            carla.Rotation(pitch=0.0, yaw=0.0, roll=0.0),
+        ),
+    ),
+    ObserverCameraSpec(
+        name="cam_front_left",
+        blueprint_id="sensor.camera.rgb",
+        transform=carla.Transform(
+            carla.Location(x=0.0, y=-0.1, z=1.5),
+            carla.Rotation(pitch=0.0, yaw=-55.0, roll=0.0),
+        ),
+    ),
+    ObserverCameraSpec(
+        name="cam_front_right",
+        blueprint_id="sensor.camera.rgb",
+        transform=carla.Transform(
+            carla.Location(x=0.0, y=0.1, z=1.5),
+            carla.Rotation(pitch=0.0, yaw=55.0, roll=0.0),
+        ),
+    ),
+    ObserverCameraSpec(
+        name="cam_back",
+        blueprint_id="sensor.camera.rgb",
+        transform=carla.Transform(
+            carla.Location(x=0.0, y=0.0, z=1.5),
+            carla.Rotation(pitch=0.0, yaw=180.0, roll=0.0),
+        ),
+    ),
+    ObserverCameraSpec(
+        name="cam_back_left",
+        blueprint_id="sensor.camera.rgb",
+        transform=carla.Transform(
+            carla.Location(x=0.0, y=-0.1, z=1.5),
+            carla.Rotation(pitch=0.0, yaw=-110.0, roll=0.0),
+        ),
+    ),
+    ObserverCameraSpec(
+        name="cam_back_right",
+        blueprint_id="sensor.camera.rgb",
+        transform=carla.Transform(
+            carla.Location(x=0.0, y=0.1, z=1.5),
+            carla.Rotation(pitch=0.0, yaw=110.0, roll=0.0),
+        ),
+    ),
+)
 
 
 def format_location(location):
@@ -96,12 +171,115 @@ def try_get_actor_location(actor):
     return location
 
 
+def actor_is_alive(actor):
+    try:
+        return bool(actor.is_alive)
+    except (AttributeError, RuntimeError):
+        return True
+
+
 def location_from_sample(sample):
     return carla.Location(
         x=float(sample["x"]),
         y=float(sample["y"]),
         z=float(sample["z"]),
     )
+
+
+def transform_from_config(transform_config):
+    location_values = transform_config["location"]
+    rotation_values = transform_config["rotation"]
+    return carla.Transform(
+        carla.Location(
+            x=float(location_values[0]),
+            y=float(location_values[1]),
+            z=float(location_values[2]),
+        ),
+        carla.Rotation(
+            pitch=float(rotation_values[0]),
+            yaw=float(rotation_values[1]),
+            roll=float(rotation_values[2]),
+        ),
+    )
+
+
+def serialize_transform(transform):
+    return {
+        "location": {
+            "x": float(transform.location.x),
+            "y": float(transform.location.y),
+            "z": float(transform.location.z),
+        },
+        "rotation": {
+            "pitch": float(transform.rotation.pitch),
+            "yaw": float(transform.rotation.yaw),
+            "roll": float(transform.rotation.roll),
+        },
+    }
+
+
+def serialize_observer_camera_specs(camera_specs):
+    return tuple(
+        {
+            "name": spec.name,
+            "blueprint_id": spec.blueprint_id,
+            "transform": serialize_transform(spec.transform),
+        }
+        for spec in camera_specs
+    )
+
+
+def load_observer_camera_specs(sensor_config_path=None):
+    if sensor_config_path is None:
+        return DEFAULT_OBSERVER_CAMERA_SPECS
+
+    try:
+        config_text = sensor_config_path.read_text(encoding="utf-8")
+    except OSError:
+        return DEFAULT_OBSERVER_CAMERA_SPECS
+
+    in_walker_block = False
+    specs_by_name = {}
+    for raw_line in config_text.splitlines():
+        line = raw_line.strip()
+        if line.startswith("Initializing Mobility"):
+            in_walker_block = "walker." in line
+            specs_by_name = {}
+            continue
+        if not in_walker_block:
+            continue
+        if line.startswith("Successfully attached"):
+            if all(name in specs_by_name for name in OBSERVER_CAMERA_NAMES):
+                return tuple(specs_by_name[name] for name in OBSERVER_CAMERA_NAMES)
+            in_walker_block = False
+            specs_by_name = {}
+            continue
+
+        match = SENSOR_CONFIG_LINE_PATTERN.match(line)
+        if match is None:
+            continue
+        sensor_name = match.group("name").strip()
+        if sensor_name not in OBSERVER_CAMERA_NAMES:
+            continue
+        blueprint_id = match.group("blueprint_id").strip()
+        try:
+            transform_config = ast.literal_eval(match.group("transform"))
+            transform = transform_from_config(transform_config)
+        except (ValueError, SyntaxError, KeyError, TypeError, IndexError):
+            continue
+        specs_by_name[sensor_name] = ObserverCameraSpec(
+            name=sensor_name,
+            blueprint_id=blueprint_id,
+            transform=transform,
+        )
+
+    return DEFAULT_OBSERVER_CAMERA_SPECS
+
+
+def safe_sensor_role_name(track_label, sensor_name):
+    safe_track = re.sub(r"[^A-Za-z0-9_.-]+", "_", track_label)
+    safe_sensor = re.sub(r"[^A-Za-z0-9_.-]+", "_", sensor_name)
+    return f"damos_{safe_track}_{safe_sensor}"
 
 
 def yaw_toward(source_location, target_location):
@@ -188,6 +366,28 @@ def pick_navigation_location_near_anchor(
     return None
 
 
+def direct_observer_locations_near_anchor(
+    anchor_location,
+    *,
+    avoid_locations=(),
+    avoid_radius=2.5,
+):
+    for radius in (4.0, 6.0, 8.0, 10.0, 14.0, 18.0):
+        for angle_degrees in (0, 45, 90, 135, 180, 225, 270, 315):
+            angle = radians(angle_degrees)
+            location = carla.Location(
+                x=anchor_location.x + radius * cos(angle),
+                y=anchor_location.y + radius * sin(angle),
+                z=anchor_location.z + 0.8,
+            )
+            if any(
+                distance_between(location, avoid_location) < avoid_radius
+                for avoid_location in avoid_locations
+            ):
+                continue
+            yield location
+
+
 def require_town01(world):
     map_name = world.get_map().name
     if map_name.endswith(f"/{TOWN01_NAME}") or map_name == TOWN01_NAME:
@@ -249,26 +449,41 @@ def cleanup_existing_custom_walkers(world):
 
     walker_ids = {actor.id for actor in custom_walkers}
     controllers = []
+    sensors = []
     for actor in actors:
-        if actor.type_id != "controller.ai.walker":
-            continue
         parent = getattr(actor, "parent", None)
-        if (parent is not None) and (parent.id in walker_ids):
+        if actor.type_id == "controller.ai.walker" and (parent is not None) and (parent.id in walker_ids):
             controllers.append(actor)
+        elif actor.type_id.startswith("sensor.") and (parent is not None) and (parent.id in walker_ids):
+            sensors.append(actor)
+
+    for sensor in sensors:
+        if not actor_is_alive(sensor):
+            continue
+        try:
+            sensor.destroy()
+        except RuntimeError:
+            pass
 
     for controller in controllers:
+        if not actor_is_alive(controller):
+            continue
         try:
             controller.stop()
         except RuntimeError:
             pass
 
     for controller in controllers:
+        if not actor_is_alive(controller):
+            continue
         try:
             controller.destroy()
         except RuntimeError:
             pass
 
     for walker in custom_walkers:
+        if not actor_is_alive(walker):
+            continue
         try:
             walker.destroy()
         except RuntimeError:
@@ -334,6 +549,36 @@ def spawn_custom_walker(
     )
 
 
+def attach_observer_cameras(world, spawned_walkers, camera_specs):
+    attached = []
+    library = world.get_blueprint_library()
+    for spawned_walker in spawned_walkers:
+        for spec in camera_specs:
+            bp = library.find(spec.blueprint_id)
+            if bp.has_attribute("role_name"):
+                bp.set_attribute(
+                    "role_name",
+                    safe_sensor_role_name(spawned_walker.track_label, spec.name),
+                )
+            sensor = world.spawn_actor(
+                bp,
+                spec.transform,
+                attach_to=spawned_walker.walker,
+            )
+            spawned_walker.sensors.append(sensor)
+            attached.append(
+                {
+                    "track_label": spawned_walker.track_label,
+                    "walker_actor_id": spawned_walker.walker.id,
+                    "sensor_actor_id": sensor.id,
+                    "sensor_name": spec.name,
+                    "blueprint_id": spec.blueprint_id,
+                    "relative_transform": serialize_transform(spec.transform),
+                }
+            )
+    return tuple(attached)
+
+
 def spawn_all_custom_walkers(
     world,
     *,
@@ -370,6 +615,7 @@ def spawn_custom_walkers_near_anchors(
     anchors,
     *,
     cleanup_existing=False,
+    prefer_direct_spawn=False,
 ):
     if cleanup_existing:
         removed_walkers, removed_controllers = cleanup_existing_custom_walkers(world)
@@ -386,31 +632,48 @@ def spawn_custom_walkers_near_anchors(
     for anchor in anchors:
         blueprint_id = anchor.blueprint_id
         spawned_walker = None
+        navigation_locations = []
+        direct_locations = list(
+            direct_observer_locations_near_anchor(
+                anchor.location,
+                avoid_locations=used_locations,
+                avoid_radius=3.0,
+            )
+        )
         for _ in range(12):
-            spawn_location = pick_navigation_location_near_anchor(
+            navigation_location = pick_navigation_location_near_anchor(
                 world,
                 anchor.location,
                 preferred_radius=7.0,
                 min_radius=3.0,
                 max_radius=18.0,
                 sample_count=400,
-                avoid_locations=used_locations,
+                avoid_locations=[*used_locations, *navigation_locations],
                 avoid_radius=3.0,
             )
-            if spawn_location is None:
-                continue
+            if navigation_location is not None:
+                navigation_locations.append(navigation_location)
 
+        if prefer_direct_spawn:
+            candidate_locations = [*direct_locations, *navigation_locations]
+        else:
+            candidate_locations = [*navigation_locations, *direct_locations]
+
+        for spawn_location in candidate_locations:
             spawn_transform = carla.Transform(
                 spawn_location,
                 carla.Rotation(yaw=yaw_toward(spawn_location, anchor.location)),
             )
-            candidate = spawn_custom_walker(
-                world,
-                blueprint_id,
-                spawn_transform,
-                anchor=anchor,
-                track_label=anchor.track_label,
-            )
+            try:
+                candidate = spawn_custom_walker(
+                    world,
+                    blueprint_id,
+                    spawn_transform,
+                    anchor=anchor,
+                    track_label=anchor.track_label,
+                )
+            except RuntimeError:
+                continue
             actual_location = candidate.walker.get_transform().location
             spawn_error = distance_between(actual_location, spawn_location)
             anchor_error = distance_between(actual_location, anchor.location)
@@ -616,15 +879,25 @@ def measure_walker_movements(spawned_walkers, initial_locations, trajectory_samp
 
 def destroy_spawned_walkers(spawned_walkers):
     for spawned_walker in spawned_walkers:
-        try:
-            spawned_walker.controller.stop()
-        except RuntimeError:
-            pass
-        try:
-            spawned_walker.controller.destroy()
-        except RuntimeError:
-            pass
-        try:
-            spawned_walker.walker.destroy()
-        except RuntimeError:
-            pass
+        for sensor in spawned_walker.sensors:
+            if not actor_is_alive(sensor):
+                continue
+            try:
+                sensor.destroy()
+            except RuntimeError:
+                pass
+        spawned_walker.sensors.clear()
+        if actor_is_alive(spawned_walker.controller):
+            try:
+                spawned_walker.controller.stop()
+            except RuntimeError:
+                pass
+            try:
+                spawned_walker.controller.destroy()
+            except RuntimeError:
+                pass
+        if actor_is_alive(spawned_walker.walker):
+            try:
+                spawned_walker.walker.destroy()
+            except RuntimeError:
+                pass

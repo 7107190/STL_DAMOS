@@ -23,8 +23,12 @@ MIN_MOVE_METERS=0.5
 OBSERVER_MODE=1
 MAX_OBSERVER_ANCHOR_DISTANCE=22.0
 MAX_OBSERVER_FACING_ERROR_DEGREES=35.0
+MAX_ANCHOR_PAIRS=""
 MAX_DELIVERYBOTS=2
 MAX_HUMANOIDS=2
+ATTACH_OBSERVER_CAMERAS=1
+OBSERVER_CAMERA_CONFIG="/home/vvu/vv/DAMOS/sensor_config.txt"
+SAVE_TRAJECTORY_REPORT=1
 SERVER_WAIT_SECONDS=180
 SCENIC_TIMEOUT_SECONDS=60
 RESX=960
@@ -47,8 +51,16 @@ Options:
                           Max observer-to-anchor distance in meters (default: 22)
   --max-observer-facing-error-degrees N
                           Max observer yaw error toward anchor (default: 35)
+  --max-anchor-pairs N    Max abnormal anchors to cover; each gets one humanoid
+                          and one deliverybot observer
   --max-deliverybots N   Max number of deliverybot walkers to inject (default: 2)
   --max-humanoids N      Max number of humanoid walkers to inject (default: 2)
+  --attach-observer-cameras
+                          Attach six RGB cameras to each observer (default)
+  --no-observer-cameras  Disable observer camera sensor attachment
+  --observer-camera-config PATH
+                          sensor_config.txt-style camera mount log
+  --no-trajectory-report Skip PNG/JSON report generation
   --scenic-timeout N     Timeout passed to Scenic's CARLA model (default: 60)
   --map-name NAME        CARLA map name for server and Scenic (default: Town10HD_Opt)
   --map-xodr PATH        Scenic .xodr path override
@@ -196,6 +208,10 @@ while [[ $# -gt 0 ]]; do
       MAX_OBSERVER_FACING_ERROR_DEGREES="$2"
       shift 2
       ;;
+    --max-anchor-pairs)
+      MAX_ANCHOR_PAIRS="$2"
+      shift 2
+      ;;
     --max-deliverybots)
       MAX_DELIVERYBOTS="$2"
       shift 2
@@ -203,6 +219,22 @@ while [[ $# -gt 0 ]]; do
     --max-humanoids)
       MAX_HUMANOIDS="$2"
       shift 2
+      ;;
+    --attach-observer-cameras)
+      ATTACH_OBSERVER_CAMERAS=1
+      shift
+      ;;
+    --no-observer-cameras)
+      ATTACH_OBSERVER_CAMERAS=0
+      shift
+      ;;
+    --observer-camera-config)
+      OBSERVER_CAMERA_CONFIG="$2"
+      shift 2
+      ;;
+    --no-trajectory-report)
+      SAVE_TRAJECTORY_REPORT=0
+      shift
       ;;
     --scenic-timeout)
       SCENIC_TIMEOUT_SECONDS="$2"
@@ -340,6 +372,21 @@ if [[ "$OBSERVER_MODE" -eq 0 ]]; then
   mode_args=(--walker-mode)
 fi
 
+anchor_pair_args=()
+if [[ -n "$MAX_ANCHOR_PAIRS" ]]; then
+  anchor_pair_args=(--max-anchor-pairs "$MAX_ANCHOR_PAIRS")
+fi
+
+camera_args=(--attach-observer-cameras)
+if [[ "$ATTACH_OBSERVER_CAMERAS" -eq 0 ]]; then
+  camera_args=(--no-observer-cameras)
+fi
+
+report_args=()
+if [[ "$SAVE_TRAJECTORY_REPORT" -eq 0 ]]; then
+  report_args=(--no-trajectory-report)
+fi
+
 set +e
 "$PYTHON_BIN" "$RUNNER" \
   --host 127.0.0.1 \
@@ -351,12 +398,16 @@ set +e
   --min-move-meters "$MIN_MOVE_METERS" \
   --max-observer-anchor-distance "$MAX_OBSERVER_ANCHOR_DISTANCE" \
   --max-observer-facing-error-degrees "$MAX_OBSERVER_FACING_ERROR_DEGREES" \
+  "${anchor_pair_args[@]}" \
   --max-deliverybots "$MAX_DELIVERYBOTS" \
   --max-humanoids "$MAX_HUMANOIDS" \
+  "${camera_args[@]}" \
+  --observer-camera-config "$OBSERVER_CAMERA_CONFIG" \
   --scenic-timeout-seconds "$SCENIC_TIMEOUT_SECONDS" \
   --carla-map "$SCENIC_CARLA_MAP" \
   --map-xodr "$SCENIC_XODR" \
-  --weather "$WEATHER"
+  --weather "$WEATHER" \
+  "${report_args[@]}"
 runner_status=$?
 set -e
 exit "$runner_status"

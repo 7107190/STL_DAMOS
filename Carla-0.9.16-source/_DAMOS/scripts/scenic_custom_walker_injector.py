@@ -15,14 +15,17 @@ from custom_walker_runtime import (
     CustomWalkerAnchor,
     DELIVERYBOT_ID,
     HUMANOID_ID,
+    attach_observer_cameras,
     connect_to_world,
     distance_between,
     destroy_spawned_walkers,
     find_invalid_anchor_spawned_walkers,
     initialize_custom_walker_movement,
+    load_observer_camera_specs,
     measure_walker_movements,
     probe_anchor_spawned_walkers,
     send_walkers_to_anchor_destinations,
+    serialize_observer_camera_specs,
     snapshot_walker_locations,
     spawn_custom_walkers_near_anchors,
     stop_spawned_walker_controllers,
@@ -36,6 +39,7 @@ DEFAULT_SCENIC_ROOT = SOURCE_ROOT
 DEFAULT_SCENIC_FILE = SOURCE_ROOT / "_DAMOS" / "_scenarios" / "S_.scenic"
 DEFAULT_SCENIC_BIN = pathlib.Path("/home/vvu/anaconda3/envs/carla4/bin/scenic")
 DEFAULT_REPORT_DIR = SOURCE_ROOT / "_DAMOS" / "reports"
+DEFAULT_SENSOR_CONFIG = SOURCE_ROOT.parent / "sensor_config.txt"
 SCENIC_SCENARIO_PATTERN = re.compile(r"^(S[_0-9]+):")
 BICYCLE_KEYWORDS = ("crossbike", "omafiets", "diamondback", "gazelle", "century")
 
@@ -57,8 +61,11 @@ class ScenicCustomWalkerConfig:
     observer_mode: bool = True
     max_observer_anchor_distance: float = 22.0
     max_observer_facing_error_degrees: float = 35.0
+    max_anchor_pairs: int | None = None
     max_deliverybots: int = 2
     max_humanoids: int = 2
+    attach_observer_cameras: bool = True
+    observer_camera_config: pathlib.Path = DEFAULT_SENSOR_CONFIG
     scenic_bin: pathlib.Path = DEFAULT_SCENIC_BIN
     scenic_file: pathlib.Path = DEFAULT_SCENIC_FILE
     keep_existing_custom_walkers: bool = False
@@ -77,6 +84,8 @@ class ScenicCustomWalkerResult:
     anchor_assignments: tuple[dict[str, object], ...]
     walker_movements: dict[str, float]
     observer_metrics: tuple[dict[str, object], ...]
+    observer_camera_specs: tuple[dict[str, object], ...]
+    observer_camera_attachments: tuple[dict[str, object], ...]
     scenic_returncode: int | None
     scenic_output_tail: tuple[str, ...]
     trajectory_report_png: str | None
@@ -142,8 +151,40 @@ def add_integration_args(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--max-observer-anchor-distance", type=float, default=22.0)
     parser.add_argument("--max-observer-facing-error-degrees", type=float, default=35.0)
+    parser.add_argument(
+        "--max-anchor-pairs",
+        type=int,
+        default=None,
+        help=(
+            "Maximum Scenic anchors to cover. Each selected anchor gets one "
+            "humanoid observer and one deliverybot observer. When omitted, this "
+            "falls back to min(--max-humanoids, --max-deliverybots)."
+        ),
+    )
     parser.add_argument("--max-deliverybots", type=int, default=2)
     parser.add_argument("--max-humanoids", type=int, default=2)
+    camera_group = parser.add_mutually_exclusive_group()
+    camera_group.add_argument(
+        "--attach-observer-cameras",
+        dest="attach_observer_cameras",
+        action="store_true",
+        default=True,
+        help="Attach six RGB cameras to each custom observer (default).",
+    )
+    camera_group.add_argument(
+        "--no-observer-cameras",
+        dest="attach_observer_cameras",
+        action="store_false",
+        help="Spawn observers without attaching camera sensor actors.",
+    )
+    parser.add_argument(
+        "--observer-camera-config",
+        default=str(DEFAULT_SENSOR_CONFIG),
+        help=(
+            "Path to the sensor_config.txt-style log used to load observer camera "
+            "mount transforms."
+        ),
+    )
     parser.add_argument("--scenic-bin", default=str(DEFAULT_SCENIC_BIN))
     parser.add_argument("--scenic-file", default=str(DEFAULT_SCENIC_FILE))
     parser.add_argument("--report-dir", default=str(DEFAULT_REPORT_DIR))
@@ -177,8 +218,11 @@ def config_from_args(args: argparse.Namespace) -> ScenicCustomWalkerConfig:
         observer_mode=args.observer_mode,
         max_observer_anchor_distance=args.max_observer_anchor_distance,
         max_observer_facing_error_degrees=args.max_observer_facing_error_degrees,
+        max_anchor_pairs=args.max_anchor_pairs,
         max_deliverybots=args.max_deliverybots,
         max_humanoids=args.max_humanoids,
+        attach_observer_cameras=args.attach_observer_cameras,
+        observer_camera_config=pathlib.Path(args.observer_camera_config),
         scenic_bin=pathlib.Path(args.scenic_bin),
         scenic_file=pathlib.Path(args.scenic_file),
         keep_existing_custom_walkers=args.keep_existing_custom_walkers,
@@ -193,11 +237,23 @@ def validate_config(config: ScenicCustomWalkerConfig) -> ScenicCustomWalkerConfi
         raise FileNotFoundError(f"Missing Scenic executable: {config.scenic_bin}")
     if not config.scenic_file.exists():
         raise FileNotFoundError(f"Missing Scenic scenario file: {config.scenic_file}")
+    if config.max_anchor_pairs is not None and config.max_anchor_pairs < 0:
+        raise ValueError("--max-anchor-pairs must be zero or positive.")
+    if config.max_deliverybots < 0:
+        raise ValueError("--max-deliverybots must be zero or positive.")
+    if config.max_humanoids < 0:
+        raise ValueError("--max-humanoids must be zero or positive.")
     if config.max_observer_anchor_distance <= 0.0:
         raise ValueError("--max-observer-anchor-distance must be positive.")
     if not 0.0 <= config.max_observer_facing_error_degrees <= 180.0:
         raise ValueError("--max-observer-facing-error-degrees must be between 0 and 180.")
     return config
+
+
+def effective_anchor_pair_count(config: ScenicCustomWalkerConfig) -> int:
+    if config.max_anchor_pairs is not None:
+        return config.max_anchor_pairs
+    return min(config.max_deliverybots, config.max_humanoids)
 
 
 def scenic_root_for(config: ScenicCustomWalkerConfig) -> pathlib.Path:
@@ -385,55 +441,50 @@ def select_anchor_for_blueprint(
 def choose_custom_walker_anchors(
     candidates,
     *,
-    max_deliverybots: int,
-    max_humanoids: int,
+    max_anchor_pairs: int,
     blocked_actor_ids=(),
 ):
     if not candidates:
         raise RuntimeError("No Scenic support actors were found for anchor-based spawn.")
+    if max_anchor_pairs <= 0:
+        return []
 
-    globally_used_actor_ids = set(blocked_actor_ids)
-    globally_used_locations = []
+    selected_anchor_candidates = []
+    selected_actor_ids = set(blocked_actor_ids)
+    selected_locations = []
     anchors = []
 
-    def append_anchors(blueprint_id, preferred_categories, count):
-        role_used_actor_ids = set()
-        for index in range(1, max(0, count) + 1):
-            candidate = select_anchor_for_blueprint(
-                candidates,
-                preferred_categories,
-                globally_used_actor_ids | role_used_actor_ids,
-                excluded_locations=globally_used_locations,
-                min_separation=8.0,
-            )
-            # If unique anchors are exhausted, relax only the cross-role actor
-            # ID constraint while still keeping enough physical separation.
-            if candidate is None:
-                candidate = select_anchor_for_blueprint(
-                    candidates,
-                    preferred_categories,
-                    set(blocked_actor_ids) | role_used_actor_ids,
-                    excluded_locations=globally_used_locations,
-                    min_separation=8.0,
-                )
-            if candidate is None:
-                break
-            globally_used_actor_ids.add(candidate["actor_id"])
-            role_used_actor_ids.add(candidate["actor_id"])
-            globally_used_locations.append(candidate["location"])
+    while len(selected_anchor_candidates) < max_anchor_pairs:
+        candidate = select_anchor_for_blueprint(
+            candidates,
+            ("pedestrian", "prop", "bicycle", "vehicle"),
+            selected_actor_ids,
+            excluded_locations=selected_locations,
+            min_separation=8.0,
+        )
+        if candidate is None:
+            break
+        selected_anchor_candidates.append(candidate)
+        selected_actor_ids.add(candidate["actor_id"])
+        selected_locations.append(candidate["location"])
+
+    for anchor_index, candidate in enumerate(selected_anchor_candidates, start=1):
+        for blueprint_id, role_label in (
+            (HUMANOID_ID, "humanoid"),
+            (DELIVERYBOT_ID, "deliverybot"),
+        ):
             anchors.append(
                 CustomWalkerAnchor(
                     blueprint_id=blueprint_id,
-                    track_label=f"{blueprint_id}:{index}",
+                    track_label=f"{blueprint_id}:anchor{anchor_index}",
                     actor_id=candidate["actor_id"],
                     actor_type_id=candidate["type_id"],
                     label=f"scenic.{candidate['category']}:{candidate['actor_id']}",
                     location=candidate["location"],
+                    anchor_index=anchor_index,
+                    observer_role=role_label,
                 )
             )
-
-    append_anchors(HUMANOID_ID, ("pedestrian", "bicycle", "vehicle", "prop"), max_humanoids)
-    append_anchors(DELIVERYBOT_ID, ("bicycle", "vehicle", "pedestrian", "prop"), max_deliverybots)
     return anchors
 
 
@@ -444,6 +495,8 @@ def serialize_anchor_assignments(anchors):
             {
                 "blueprint_id": anchor.blueprint_id,
                 "track_label": anchor.track_label,
+                "anchor_index": anchor.anchor_index,
+                "observer_role": anchor.observer_role,
                 "anchor_actor_id": anchor.actor_id,
                 "anchor_type_id": anchor.actor_type_id,
                 "anchor_label": anchor.label,
@@ -498,6 +551,7 @@ def build_observer_metrics(world, spawned_walkers, *, detected_ego=None):
             "track_label": spawned_walker.track_label,
             "walker_actor_id": spawned_walker.walker.id,
             "blueprint_id": spawned_walker.spec.blueprint_id,
+            "attached_sensor_count": len(spawned_walker.sensors),
         }
         location = try_get_actor_location(spawned_walker.walker)
         if location is None:
@@ -523,6 +577,8 @@ def build_observer_metrics(world, spawned_walkers, *, detected_ego=None):
             {
                 "status": "ok",
                 "anchor_actor_id": anchor.actor_id,
+                "anchor_index": anchor.anchor_index,
+                "observer_role": anchor.observer_role,
                 "anchor_type_id": anchor.actor_type_id,
                 "anchor_label": anchor.label,
                 "anchor_location": anchor_location_dict,
@@ -924,6 +980,8 @@ def build_cooperation_links(trajectory_samples, anchor_assignments, detected_ego
             "walker_track_label": walker_key,
             "walker_actor_id": walker_start.get("actor_id"),
             "walker_blueprint_id": anchor["blueprint_id"],
+            "anchor_index": anchor.get("anchor_index"),
+            "observer_role": anchor.get("observer_role"),
             "anchor_actor_id": anchor["anchor_actor_id"],
             "anchor_type_id": anchor["anchor_type_id"],
             "anchor_label": anchor["anchor_label"],
@@ -976,6 +1034,8 @@ def save_trajectory_report(
     detected_ego=None,
     walker_movements=None,
     observer_metrics=(),
+    observer_camera_specs=(),
+    observer_camera_attachments=(),
 ):
     config.report_dir.mkdir(parents=True, exist_ok=True)
     map_name = safe_map_name(world).split("/")[-1]
@@ -1013,6 +1073,8 @@ def save_trajectory_report(
             "max_observer_facing_error_degrees": config.max_observer_facing_error_degrees,
         },
         "observer_metrics": list(observer_metrics or ()),
+        "observer_camera_specs": list(observer_camera_specs or ()),
+        "observer_camera_attachments": list(observer_camera_attachments or ()),
         "scenario_labels": list(scenario_labels),
         "anchor_assignments": list(anchor_assignments),
         "cooperation_links": build_cooperation_links(
@@ -1303,6 +1365,7 @@ def inject_custom_walkers_for_anchors(
             world,
             anchors,
             cleanup_existing=not keep_existing_custom_walkers if attempt == 1 else False,
+            prefer_direct_spawn=observer_mode,
         )
         if observer_mode:
             stop_spawned_walker_controllers(spawned_walkers)
@@ -1427,6 +1490,8 @@ def run_scenic_custom_walker_integration(
     anchor_assignments = ()
     detected_ego = None
     observer_metrics = ()
+    observer_camera_specs = ()
+    observer_camera_attachments = ()
 
     try:
         client, world = connect_to_world(
@@ -1470,7 +1535,8 @@ def run_scenic_custom_walker_integration(
             f"map={safe_map_name(world)}{ego_location_text}"
         )
 
-        min_anchor_candidates = max(1, config.max_deliverybots + config.max_humanoids)
+        max_anchor_pairs = effective_anchor_pair_count(config)
+        min_anchor_candidates = 1
         world, anchor_candidates = wait_for_anchor_candidates(
             client,
             ego,
@@ -1483,17 +1549,22 @@ def run_scenic_custom_walker_integration(
         for anchor_attempt in range(1, 5):
             anchors = choose_custom_walker_anchors(
                 anchor_candidates,
-                max_deliverybots=config.max_deliverybots,
-                max_humanoids=config.max_humanoids,
+                max_anchor_pairs=max_anchor_pairs,
                 blocked_actor_ids=blocked_anchor_actor_ids,
             )
+            if not anchors:
+                raise RuntimeError(
+                    "No usable Scenic anchor pairs were selected for custom observers."
+                )
             anchor_assignments = serialize_anchor_assignments(anchors)
 
             logger("Selected Scenic anchors for custom walkers:")
             for assignment in anchor_assignments:
                 location = assignment["anchor_location"]
                 logger(
-                    f"  walker={assignment['blueprint_id']} "
+                    f"  anchor_pair={assignment['anchor_index']} "
+                    f"role={assignment['observer_role']} "
+                    f"walker={assignment['blueprint_id']} "
                     f"anchor={assignment['anchor_label']} "
                     f"type={assignment['anchor_type_id']} "
                     f"location=({location['x']:.2f}, {location['y']:.2f}, {location['z']:.2f})"
@@ -1521,6 +1592,21 @@ def run_scenic_custom_walker_integration(
                 "Failed to place custom walkers near valid Scenic anchors after "
                 f"multiple fallback attempts: {last_anchor_error}"
             ) from last_anchor_error
+
+        if config.attach_observer_cameras:
+            camera_specs = load_observer_camera_specs(config.observer_camera_config)
+            observer_camera_specs = serialize_observer_camera_specs(camera_specs)
+            observer_camera_attachments = attach_observer_cameras(
+                world,
+                spawned_walkers,
+                camera_specs,
+            )
+            logger(
+                f"Attached {len(observer_camera_attachments)} observer cameras "
+                f"using {config.observer_camera_config}."
+            )
+        else:
+            logger("Observer camera attachment disabled for this run.")
 
         tracked_actors = build_tracked_actor_map(ego, spawned_walkers)
         ego_tracking_state = EgoTrackingState(
@@ -1644,6 +1730,8 @@ def run_scenic_custom_walker_integration(
                 detected_ego=detected_ego,
                 walker_movements=walker_movements,
                 observer_metrics=observer_metrics,
+                observer_camera_specs=observer_camera_specs,
+                observer_camera_attachments=observer_camera_attachments,
             )
             logger(f"Saved trajectory PNG: {trajectory_report_png}")
             logger(f"Saved focus trajectory PNG: {trajectory_report_focus_png}")
@@ -1681,6 +1769,8 @@ def run_scenic_custom_walker_integration(
             anchor_assignments=anchor_assignments,
             walker_movements=walker_movements,
             observer_metrics=observer_metrics,
+            observer_camera_specs=observer_camera_specs,
+            observer_camera_attachments=observer_camera_attachments,
             scenic_returncode=scenic_proc.returncode,
             scenic_output_tail=tuple(output_lines[-20:]),
             trajectory_report_png=trajectory_report_png,

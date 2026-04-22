@@ -46,7 +46,8 @@ Notion 기준 김기웅의 역할은 메인 시스템 통제와 통합입니다.
 | Track 1 rule-based 최종 제어 | 다음 작업 |
 | Track 2용 GT 데이터 추출 지원 | 다음 작업 |
 | 휴머노이드/배달로봇 생성 및 구동 | 3월 진행 내용 반영, 기본 검증 완료 |
-| Scenic 비정상 상황 anchor 기반 custom walker 배치 | observer mode로 방향 확정 및 검증 완료 |
+| Scenic 비정상 상황 anchor 기반 custom walker 배치 | anchor별 휴머노이드 1대 + 배달로봇 1대 배치 구현 및 vvu 검증 완료 |
+| observer camera 부착 | `sensor_config.txt` 기준 6방향 RGB 카메라 부착 구조 구현 및 vvu 검증 완료 |
 
 ## 현재 진행상황
 
@@ -56,7 +57,9 @@ Notion 기준 김기웅의 역할은 메인 시스템 통제와 통합입니다.
 | Scenic 실행 환경 | 완료 | `carla4` 환경에서 Scenic 3.1.0a1 확인 |
 | custom walker asset/runtime | 완료 | `damos_deliverybot`, `damos_humanoid` 생성 및 이동 smoke test 통과 |
 | observer mode | 완료 | custom walker를 이동체가 아니라 비정상 상황 anchor 주변 observer node로 사용 |
-| observer 검증 | 완료 | Town10HD_Opt에서 3회 실행 통과, yaw error 0.0도 |
+| anchor pair spawn | 완료 | 각 Scenic anchor마다 humanoid 1대와 deliverybot 1대를 배치 |
+| observer camera metadata | 완료 | walker용 6방향 RGB 카메라 위치를 `sensor_config.txt`에서 로드하고 sensor actor 부착 |
+| observer 검증 | 완료 | 기존 단일-role 배치 기준 Town10HD_Opt에서 3회 실행 통과, yaw error 0.0도 |
 | GitHub 구조 정리 | 완료 | vvu 구조에 맞춰 `Carla-0.9.16-source/` 아래로 mirror |
 | vvu 문서 동기화 | 완료 | root `README.md`, `AGENTS.md`, `docs/` 동기화 |
 
@@ -71,6 +74,13 @@ Notion 기준 김기웅의 역할은 메인 시스템 통제와 통합입니다.
 | custom walker가 Scenic 비정상 상황까지 이동해야 함 | 비정상 상황 anchor 주변에 고정 observer로 배치 |
 | 이동거리 검증이 중요 | anchor 거리, anchor를 바라보는 yaw error, ego와의 공유 가능성이 중요 |
 | walker navigation 중심 | ego/custom observer 간 데이터 공유 중심 |
+
+현재 spawn 정책은 anchor 하나당 다음 observer pair를 배치하는 방향입니다.
+
+| Scenic anchor | 배치 actor | 센서 |
+|---|---|---|
+| 비정상 상황 주변 support actor | `damos_humanoid` 1대 | 6방향 RGB 카메라 |
+| 동일 anchor | `damos_deliverybot` 1대 | 6방향 RGB 카메라 |
 
 현재 wrapper 기본값은 observer mode입니다.
 
@@ -130,7 +140,7 @@ STL_DAMOS/
 | 우선순위 | 작업 |
 |---|---|
 | 1 | CARLA 메인 동기화 루프와 Scenic observer wrapper 연결 |
-| 2 | ego/custom observer별 6프레임 이미지 버퍼링 구현 |
+| 2 | observer camera stream을 ego/custom observer별 6프레임 이미지 버퍼로 연결 |
 | 3 | observer metadata를 occupancy 입력 또는 M2X 공유 payload로 정리 |
 | 4 | rule-based brake/straight 제어 루프 작성 |
 | 5 | Track 2용 GT 추출 경로 정리 |

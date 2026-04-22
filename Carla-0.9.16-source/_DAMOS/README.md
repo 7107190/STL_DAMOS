@@ -70,8 +70,10 @@ This launcher:
 - runs `_DAMOS/_scenarios/S_.scenic`
 - waits for Scenic to spawn the `ego`
 - waits for Scenic support actors to appear
-- chooses support-actor anchors for `damos_deliverybot` and `damos_humanoid`
-- allows cross-role anchor reuse when Scenic support actors are sparse
+- chooses Scenic support-actor anchors and places one `damos_humanoid` plus one
+  `damos_deliverybot` at each selected anchor
+- attaches six RGB observer cameras to each custom observer using the walker
+  camera mount positions from `/home/vvu/vv/DAMOS/sensor_config.txt`
 - validates observer placement and yaw toward each Scenic anchor
 - saves trajectory PNG, focus PNG, and JSON reports under `_DAMOS/reports`
 
@@ -105,10 +107,12 @@ The saved trajectory reports include:
 - cooperation metadata in JSON form
 - observer-mode metadata: observer-to-anchor distance, yaw error toward the anchor,
   and ego-to-anchor distance
+- observer camera metadata: six camera names, relative transforms, and attached
+  CARLA sensor actor ids for each observer
 
 Recent validated headless report example:
 
-- `_DAMOS/reports/scenic_custom_walkers_Town10HD_Opt_S4_S8_S3_S5_port2133_20260320-160943.json`
+- `_DAMOS/reports/scenic_custom_walkers_Town10HD_Opt_S7_S4_S5_S1_port2204_20260422-203628.json`
 
 ## Default Root Resolution
 
@@ -161,6 +165,6 @@ The main remaining work is DAMOS behavior integration, for example:
 
 - ego/custom-observer cooperation data flow
 - mapping observer metadata into 6-frame image buffering / occupancy inputs
-- better anchor-selection policy around Scenic-generated abnormal situations
+- connecting attached observer camera streams to the 6-frame image buffer
 - attaching the injector to the real DAMOS execution pipeline
 - turning observer JSON/PNG output into experiment-facing reports

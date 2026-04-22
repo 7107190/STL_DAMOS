@@ -12,7 +12,9 @@ coverage data with `ego`. This lets the system recover from risk in ego's
 non-visible area.
 
 The custom walkers do not need to walk for this Track 1 goal. Their primary role
-is to behave as cooperative observer nodes.
+is to behave as cooperative observer nodes. Each selected Scenic anchor should
+receive one humanoid observer and one deliverybot observer, and each observer
+uses the six-camera walker layout from `/home/vvu/vv/DAMOS/sensor_config.txt`.
 
 ## Tracks
 
@@ -51,4 +53,6 @@ is to behave as cooperative observer nodes.
 | Scenic editable install in `carla4` | Done |
 | Custom walker movement smoke test | Passed previously; now optional with `--walker-mode` |
 | Custom observer mode | Implemented and validated 3 times |
+| Anchor pair policy | Implemented: one humanoid and one deliverybot per selected anchor |
+| Observer camera attachment | Implemented: six RGB cameras per observer from `sensor_config.txt` |
 | GitHub source overlay | This repository |
