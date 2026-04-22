@@ -16,6 +16,7 @@ DAMOS는 `Decentralized Autonomous Mobility Simulation`의 약자이며, 여러 
 | GitHub mirror 구조 | `STL_DAMOS/Carla-0.9.16-source` |
 
 ## Track 구성
+<img width="2000" height="994" alt="Gemini_Generated_Image_26dviy26dviy26dv-2" src="https://github.com/user-attachments/assets/0517d2ed-231d-4f00-a6bf-0643ec124336" />
 
 | Track | 목표 | 현재 해석 |
 |---|---|---|
