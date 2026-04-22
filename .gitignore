@@ -19,6 +19,15 @@ Plugins/.git/
 
 # Plugins (외부 클론)
 Plugins/
+# DAMOS Unreal source overlay kept in this repo.
+!Unreal/
+!Unreal/CarlaUE4/
+!Unreal/CarlaUE4/Plugins/
+!Unreal/CarlaUE4/Plugins/Carla/
+!Unreal/CarlaUE4/Plugins/Carla/Source/
+!Unreal/CarlaUE4/Plugins/Carla/Source/Carla/
+!Unreal/CarlaUE4/Plugins/Carla/Source/Carla/Damos/
+!Unreal/CarlaUE4/Plugins/Carla/Source/Carla/Damos/*
 
 # PythonAPI (기본 CARLA 포함)
 PythonAPI/

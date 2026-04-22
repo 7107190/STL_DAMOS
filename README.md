@@ -30,6 +30,16 @@
 * **Step 4. 글로벌 융합 (서브 PC):** 통신망을 통해 수신한 타 객체의 점유 영역 데이터와 내 로컬 데이터를 병합하여 **'사각지대 없는 글로벌 점유 영역 지도'**를 완성합니다.
 * **Step 5. 룰 기반 제어 (메인 PC):** 완성된 점유 영역 지도상에 자차의 직진 경로가 겹치면(충돌 위험) **'긴급 제동(브레이크)'**, 겹치지 않으면 **'직진'** 하도록 가벼운 제어 명령을 내려 시뮬레이터에 반영합니다.
 
+#### Custom Walker Observer Mode
+Scenic으로 생성한 비정상 상황이 ego의 비가시영역에 있을 때, `damos_deliverybot`과
+`damos_humanoid`는 반드시 이동할 필요가 없습니다. 현재 기본 실행은 custom walker를
+비정상 상황 anchor 근처에 고정 observer node로 배치하고, 해당 anchor를 바라보게 한 뒤
+ego와 공유할 coverage metadata를 생성합니다.
+
+검증용 wrapper는 vvu 기준 `_DAMOS/scripts/run_scenic_custom_walkers_town10hd.sh`이며,
+기본값은 observer mode입니다. walker asset 이동성 확인이 필요할 때만 `--walker-mode`를
+붙여 movement smoke test로 실행합니다.
+
 ### 🔬 [Track 2] 5초 미래 궤적 예측 (오프라인 정량 평가용)
 Track 1의 실시간 루프 연산 속도를 갉아먹지 않도록, 시뮬레이션 연동과 완전히 단절된 **단독 오프라인 연구**입니다.
 
