@@ -1,4 +1,4 @@
-# DAMOS Assistant Guidelines
+# DAMOS Agent Guidelines
 
 These notes keep AI-assisted edits aligned with the current DAMOS repository
 layout and project direction.

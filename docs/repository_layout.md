@@ -8,7 +8,7 @@ CARLA/Unreal/Scenic vendor checkout.
 | Path | Status | Notes |
 |---|---|---|
 | `README.md` | Active | Top-level orientation and run command |
-| `CLAUDE.md` | Active | AI-assisted coding guardrails |
+| `AGENTS.md` | Active | AI-assisted coding guardrails |
 | `Carla-0.9.16-source/_DAMOS/` | Active | Project runtime scripts and Scenic scenarios |
 | `Carla-0.9.16-source/Scenic/Maps/` | Active asset | OpenDRIVE maps required by Scenic wrappers |
 | `Carla-0.9.16-source/Unreal/CarlaUE4/Plugins/Carla/Source/Carla/Damos/` | Active source overlay | DAMOS custom walker Unreal code |

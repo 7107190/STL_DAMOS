@@ -1,82 +1,145 @@
 # STL_DAMOS
 
-DAMOS is a CARLA/Scenic simulation workspace for decentralized M2X cooperative
-autonomous mobility. The project target is to let `ego` and custom mobility
-observers share local information so that abnormal Scenic situations can be
-handled even when the risk is outside ego's direct visible area.
+DAMOS는 `Decentralized Autonomous Mobility Simulation`의 약자이며, 여러 모빌리티가 중앙 서버 없이 M2X 방식으로 정보를 주고받아 ego의 비가시영역에서 발생한 Scenic 비정상 상황까지 대응하는 협력 자율주행 시뮬레이션 프로젝트입니다.
 
-This repository is the source overlay for DAMOS work and the canonical GitHub
-view of the active vvu workspace. It is not a full CARLA, Unreal Engine, or
-Scenic vendor checkout.
+이 저장소는 vvu 작업 폴더를 그대로 압축해 올린 백업이 아니라, DAMOS에 필요한 소스와 문서만 추적하는 GitHub 기준 저장소입니다. 대용량 CARLA/Unreal/Scenic 원본은 제외하고, 실제 작업 구조와 최대한 비슷하게 `Carla-0.9.16-source/` 아래에 DAMOS overlay를 배치했습니다.
 
-## Current Direction
+## 프로젝트 기준
 
-| Area | Decision |
+| 항목 | 내용 |
 |---|---|
-| Source of truth | Notion `SDV/DAMOS` project direction |
-| Runtime workspace | `vvu:/home/vvu/vv/DAMOS/Carla-0.9.16-source` |
-| Track 1 | Real-time M2X integration simulation, 18-second loop target |
-| Track 2 | Offline 5-second trajectory prediction using CARLA GT |
-| Custom walkers | Static observer nodes by default, not moving actors |
-| Scenic abnormal events | Spawned through `Carla-0.9.16-source/_DAMOS/_scenarios/S_.scenic` |
+| 기준 문서 | Notion `SDV / DAMOS` |
+| 핵심 아이디어 | ego와 custom observer가 정보를 공유해 비가시영역의 비정상 상황을 극복 |
+| 런타임 기준 서버 | `vvu` |
+| 실제 작업 루트 | `/home/vvu/vv/DAMOS` |
+| CARLA 작업 루트 | `/home/vvu/vv/DAMOS/Carla-0.9.16-source` |
+| GitHub mirror 구조 | `STL_DAMOS/Carla-0.9.16-source` |
 
-## Repository Layout
+## Track 구성
 
-| Path | Purpose |
+| Track | 목표 | 현재 해석 |
+|---|---|---|
+| Track 1 | M2X 실시간 통합 시뮬레이션, 18초 지표 방어 | CARLA + Scenic 비정상 상황 + custom observer + M2X 공유 + rule-based 제어 |
+| Track 2 | CARLA GT 기반 5초 미래 궤적 예측 | Track 1 루프와 분리된 오프라인 정량 평가 |
+
+## Track 1 파이프라인
+
+| 단계 | 내용 | 담당 영역 |
+|---|---|---|
+| 1 | CARLA + Scenic으로 비정상 상황과 결함 상황 생성 | 메인 PC / Scenic |
+| 2 | 각 모빌리티 시야에서 과거 6프레임 이미지를 추출 | 메인 PC |
+| 3 | 6프레임 입력으로 미래 10프레임, 즉 5초 점유 영역 예측 | 서브 PC |
+| 4 | 로컬 예측 결과와 이동 정보를 ZK 기반 M2X 네트워크로 공유 | 통신망 |
+| 5 | 수신 데이터와 로컬 데이터를 융합해 사각지대 없는 글로벌 점유 지도 생성 | 융합 |
+| 6 | 충돌 위험이면 브레이크, 아니면 직진하는 rule-based 제어 실행 | 메인 PC |
+
+## 김기웅 담당 범위
+
+Notion 기준 김기웅의 역할은 메인 시스템 통제와 통합입니다.
+
+| 담당 | 상태 |
 |---|---|
-| `Carla-0.9.16-source/_DAMOS/` | Active DAMOS scripts, Scenic scenario set, custom walker runtime docs |
-| `Carla-0.9.16-source/Unreal/CarlaUE4/Plugins/Carla/Source/Carla/Damos/` | DAMOS Unreal source overlay for custom walker support |
-| `Carla-0.9.16-source/Scenic/Maps/` | OpenDRIVE maps used by the Scenic wrappers |
-| `UnrealEngine_4.26/README.md` | Placeholder for the external Unreal Engine dependency |
-| `docs/` | Project direction, vvu workspace notes, observer-mode design |
-| `archive/` | Legacy Scenic scripts, old scenario copies, and old run records |
+| CARLA 메인 동기화 루프 개발 | 다음 핵심 작업 |
+| actor spawning 구조 | custom walker/runtime 기반 구축 완료 |
+| 6프레임 이미지 버퍼링 | 다음 작업 |
+| Track 1 rule-based 최종 제어 | 다음 작업 |
+| Track 2용 GT 데이터 추출 지원 | 다음 작업 |
+| 휴머노이드/배달로봇 생성 및 구동 | 3월 진행 내용 반영, 기본 검증 완료 |
+| Scenic 비정상 상황 anchor 기반 custom walker 배치 | observer mode로 방향 확정 및 검증 완료 |
 
-## Main Runtime Command
+## 현재 진행상황
 
-Run this from the vvu CARLA source-build repository root:
+| 구분 | 상태 | 근거 |
+|---|---|---|
+| vvu 폴더 정리 | 완료 | `Carla-0.9.16-source`, `UnrealEngine_4.26`, `_archive` 기준으로 정리 |
+| Scenic 실행 환경 | 완료 | `carla4` 환경에서 Scenic 3.1.0a1 확인 |
+| custom walker asset/runtime | 완료 | `damos_deliverybot`, `damos_humanoid` 생성 및 이동 smoke test 통과 |
+| observer mode | 완료 | custom walker를 이동체가 아니라 비정상 상황 anchor 주변 observer node로 사용 |
+| observer 검증 | 완료 | Town10HD_Opt에서 3회 실행 통과, yaw error 0.0도 |
+| GitHub 구조 정리 | 완료 | vvu 구조에 맞춰 `Carla-0.9.16-source/` 아래로 mirror |
+| vvu 문서 동기화 | 완료 | root `README.md`, `AGENTS.md`, `docs/` 동기화 |
+
+## Observer Mode 결정
+
+초기에는 custom walker가 실제로 이동해야 하는지 확인했지만, 현재 DAMOS Track 1 아이디어에서는 반드시 이동할 필요가 없습니다.
+
+핵심은 다음과 같습니다.
+
+| 기존 관점 | 현재 결정 |
+|---|---|
+| custom walker가 Scenic 비정상 상황까지 이동해야 함 | 비정상 상황 anchor 주변에 고정 observer로 배치 |
+| 이동거리 검증이 중요 | anchor 거리, anchor를 바라보는 yaw error, ego와의 공유 가능성이 중요 |
+| walker navigation 중심 | ego/custom observer 간 데이터 공유 중심 |
+
+현재 wrapper 기본값은 observer mode입니다.
 
 ```bash
-Carla-0.9.16-source/_DAMOS/scripts/run_scenic_custom_walkers_town10hd.sh --restart --headless
+cd /home/vvu/vv/DAMOS/Carla-0.9.16-source
+_DAMOS/scripts/run_scenic_custom_walkers_town10hd.sh --restart --headless
 ```
 
-The default mode is observer mode:
+walker asset/controller 이동성만 확인할 때는 다음처럼 실행합니다.
 
-| Mode | Command | Meaning |
+```bash
+cd /home/vvu/vv/DAMOS/Carla-0.9.16-source
+_DAMOS/scripts/run_scenic_custom_walkers_town10hd.sh --restart --headless --walker-mode
+```
+
+## 저장소 구조
+
+GitHub 구조는 vvu의 `/home/vvu/vv/DAMOS`를 기준으로 맞췄습니다.
+
+```text
+STL_DAMOS/
+├── AGENTS.md
+├── README.md
+├── Carla-0.9.16-source/
+│   ├── _DAMOS/
+│   ├── Scenic/
+│   │   └── Maps/
+│   └── Unreal/
+│       └── CarlaUE4/Plugins/Carla/Source/Carla/Damos/
+├── UnrealEngine_4.26/
+│   └── README.md
+├── archive/
+└── docs/
+```
+
+| GitHub 경로 | vvu 실제 경로 | 설명 |
 |---|---|---|
-| Observer mode | default, or `--observer-mode` | Custom walkers stay near Scenic abnormal anchors and face the event |
-| Walker smoke test | `--walker-mode` | Custom walkers are routed and must move, used only to test assets/controllers |
+| `Carla-0.9.16-source/_DAMOS` | `/home/vvu/vv/DAMOS/Carla-0.9.16-source/_DAMOS` | DAMOS 실행 스크립트와 시나리오 |
+| `Carla-0.9.16-source/Scenic/Maps` | `/home/vvu/vv/DAMOS/Carla-0.9.16-source/Scenic/Maps` | Scenic OpenDRIVE map |
+| `Carla-0.9.16-source/Unreal/.../Damos` | `/home/vvu/vv/DAMOS/Carla-0.9.16-source/Unreal/.../Damos` | Unreal custom walker source overlay |
+| `UnrealEngine_4.26/README.md` | `/home/vvu/vv/DAMOS/UnrealEngine_4.26` | 실제 UE 전체는 추적하지 않고 위치만 표시 |
+| `docs/` | `/home/vvu/vv/DAMOS/docs` | 프로젝트 방향과 작업 문서 |
 
-## Observer Mode
+## Git에 올리지 않는 것
 
-In Track 1, the custom walkers do not need to travel through the map. They are
-used as extra observer nodes around the abnormal situation. The integration
-wrapper records:
-
-- observer-to-anchor distance
-- observer yaw error toward the anchor
-- ego-to-anchor distance
-- anchor assignment and cooperation metadata
-
-The latest vvu validation passed three Scenic observer runs on ports `2195`,
-`2196`, and `2197`; all observer yaw errors were `0.0` degrees.
-
-See [docs/observer_mode.md](docs/observer_mode.md) for details.
-
-## What This Repo Does Not Store
-
-| Excluded | Reason |
+| 제외 대상 | 이유 |
 |---|---|
-| Full `Carla-0.9.16-source` checkout | Vendor/source build dependency, too large and not DAMOS-specific |
-| Full `UnrealEngine_4.26` checkout | External engine dependency |
-| Full Scenic source tree | External dependency; only maps/scenarios relevant to DAMOS are tracked |
-| `Carla-0.9.16-source/_DAMOS/logs` and `reports` | Generated runtime artifacts |
-| `Carla-0.9.16-source/_DAMOS/3d_model` source assets | Large model/import assets, kept on vvu unless explicitly packaged |
+| 전체 `Carla-0.9.16-source` vendor/build tree | 대용량이며 DAMOS 고유 소스가 아님 |
+| 전체 `UnrealEngine_4.26` | 100GB 이상 외부 엔진 dependency |
+| 전체 Scenic source | 외부 dependency, 필요한 map만 추적 |
+| `Carla-0.9.16-source/_DAMOS/logs` | 실행 로그 |
+| `Carla-0.9.16-source/_DAMOS/reports` | 검증 리포트 이미지/JSON |
+| `Carla-0.9.16-source/_DAMOS/3d_model` | 대용량 모델 원본 |
 
-## Documentation
+## 다음 작업
 
-| Document | Content |
+| 우선순위 | 작업 |
 |---|---|
-| [docs/project_direction.md](docs/project_direction.md) | Notion-based DAMOS direction and Kiwoong's responsibility |
-| [docs/observer_mode.md](docs/observer_mode.md) | Why custom walkers are static observers and how validation works |
-| [docs/vvu_workspace.md](docs/vvu_workspace.md) | vvu folder structure and what each external folder is for |
-| [docs/repository_layout.md](docs/repository_layout.md) | GitHub repository structure and archive policy |
+| 1 | CARLA 메인 동기화 루프와 Scenic observer wrapper 연결 |
+| 2 | ego/custom observer별 6프레임 이미지 버퍼링 구현 |
+| 3 | observer metadata를 occupancy 입력 또는 M2X 공유 payload로 정리 |
+| 4 | rule-based brake/straight 제어 루프 작성 |
+| 5 | Track 2용 GT 추출 경로 정리 |
+
+## 참고 문서
+
+| 문서 | 내용 |
+|---|---|
+| `docs/project_direction.md` | Notion 기반 프로젝트 방향 |
+| `docs/observer_mode.md` | custom walker observer mode 설계와 검증 |
+| `docs/vvu_workspace.md` | vvu 폴더 구조 |
+| `docs/repository_layout.md` | GitHub 저장소 구조와 archive 정책 |
+| `Carla-0.9.16-source/_DAMOS/README.md` | DAMOS runtime wrapper 상세 |
