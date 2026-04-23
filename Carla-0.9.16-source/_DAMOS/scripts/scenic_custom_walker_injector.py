@@ -457,6 +457,24 @@ def make_semantic_anchor_candidate(candidates, *, label, kind, category=None):
     return semantic_candidate
 
 
+def make_individual_anchor_candidates(candidates, *, label_prefix, kind, category=None):
+    return [
+        make_semantic_anchor_candidate(
+            [candidate],
+            label=f"{label_prefix}:{index}",
+            kind=kind,
+            category=category or candidate["category"],
+        )
+        for index, candidate in enumerate(
+            sorted(
+                candidates,
+                key=lambda item: (item["distance_to_ego"], item["actor_id"]),
+            ),
+            start=1,
+        )
+    ]
+
+
 def cluster_candidates_by_distance(candidates, *, max_distance):
     clusters = []
     for candidate in sorted(
@@ -505,14 +523,12 @@ def semantic_anchor_candidates(candidates, *, selected_scenario: str | None = No
             candidate for candidate in candidates if candidate["category"] == "prop"
         ]
         if road_obstacles:
-            return [
-                make_semantic_anchor_candidate(
-                    road_obstacles,
-                    label="scenic.obstacle_region:1",
-                    kind="obstacle_region",
-                    category="prop",
-                )
-            ]
+            return make_individual_anchor_candidates(
+                road_obstacles,
+                label_prefix="scenic.road_obstacle",
+                kind="road_obstacle",
+                category="prop",
+            )
 
     if len(pedestrians) > 3:
         for index, cluster in enumerate(
@@ -1522,8 +1538,11 @@ def save_trajectory_report(
         DELIVERYBOT_ID: "#ff7f0e",
     }
 
+    focus_anchor_count = len(
+        {anchor.get("anchor_index") for anchor in anchor_assignments}
+    )
     drawn_focus_anchor_indices = set()
-    drew_focus_anchor_members = False
+    focus_legend_drawn = set()
     for anchor in anchor_assignments:
         location = anchor["anchor_location"]
         anchor_key = anchor["anchor_label"]
@@ -1561,10 +1580,12 @@ def save_trajectory_report(
                     c="#6b7280",
                     alpha=0.8,
                     linewidths=0,
-                    label="anchor members" if not drew_focus_anchor_members else None,
+                    label=(
+                        "anchor members" if "anchor_members" not in focus_legend_drawn else None
+                    ),
                     zorder=4,
                 )
-                drew_focus_anchor_members = True
+                focus_legend_drawn.add("anchor_members")
             focus_ax.scatter(
                 location["x"],
                 location["y"],
@@ -1572,16 +1593,20 @@ def save_trajectory_report(
                 marker="*",
                 c="#111111",
                 zorder=7,
-                label="semantic anchor",
+                label=(
+                    "semantic anchors" if "semantic_anchors" not in focus_legend_drawn else None
+                ),
             )
-            focus_ax.annotate(
-                f"{anchor.get('anchor_kind', 'anchor')} ({anchor.get('member_count', 1)})",
-                (location["x"], location["y"]),
-                xytext=(8, 8),
-                textcoords="offset points",
-                fontsize=8,
-                color="#111111",
-            )
+            focus_legend_drawn.add("semantic_anchors")
+            if focus_anchor_count <= 8:
+                focus_ax.annotate(
+                    f"{anchor.get('anchor_kind', 'anchor')} ({anchor.get('member_count', 1)})",
+                    (location["x"], location["y"]),
+                    xytext=(8, 8),
+                    textcoords="offset points",
+                    fontsize=8,
+                    color="#111111",
+                )
 
         walker_samples = trajectory_samples.get(anchor["track_label"], [])
         if walker_samples:
@@ -1601,6 +1626,18 @@ def save_trajectory_report(
             continue
         group_key = group_key_for_track(key)
         color = focus_colors.get(group_key, "#444444")
+        if group_key == DELIVERYBOT_ID:
+            legend_key = "deliverybot_observers"
+            legend_label = "deliverybot observers"
+        elif group_key == HUMANOID_ID:
+            legend_key = "humanoid_observers"
+            legend_label = "humanoid observers"
+        elif group_key == "ego":
+            legend_key = "ego"
+            legend_label = "ego"
+        else:
+            legend_key = group_key
+            legend_label = label_for_track(key)
         segments = split_trajectory_segments(samples)
         first_segment = True
         for segment in segments:
@@ -1612,8 +1649,14 @@ def save_trajectory_report(
                 color=color,
                 linewidth=2.2,
                 alpha=0.95,
-                label=label_for_track(key) if first_segment else None,
+                label=(
+                    legend_label
+                    if first_segment and legend_key not in focus_legend_drawn
+                    else None
+                ),
             )
+            if first_segment:
+                focus_legend_drawn.add(legend_key)
             first_segment = False
         xs = [sample["x"] for sample in samples]
         ys = [sample["y"] for sample in samples]

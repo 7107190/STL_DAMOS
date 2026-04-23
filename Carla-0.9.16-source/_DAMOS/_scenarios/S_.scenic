@@ -117,7 +117,7 @@ scenario S3(): # 비가시 영역 무단 횡단
 
 scenario S4():  # 도로위 장애물
   setup:
-    N_OBSTACLES = 20
+    N_OBSTACLES = 4
     spots = [ new OrientedPoint on (Uniform(*network.lanes)).centerline
               for _ in range(N_OBSTACLES) ]
     obstacles = [

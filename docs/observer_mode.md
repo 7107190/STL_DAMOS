@@ -58,7 +58,7 @@ Default anchor policy:
 | `S1` pedestrian jaywalking | 3 | 3 |
 | `S2` bicycle jaywalking | 3 | 3 |
 | `S3` blind-area jaywalking | 3 | 3 |
-| `S4` road obstacles | 20 | 1 obstacle region |
+| `S4` road obstacles | 4 | 4 road-obstacle anchors |
 | `S5` illegal sidewalk parking | 6 | 1 vehicle region |
 | `S6` road construction | 36 | 1 construction region |
 | `S7` sidewalk construction | 40 | 1 construction region |
