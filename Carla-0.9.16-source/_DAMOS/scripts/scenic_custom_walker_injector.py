@@ -2243,12 +2243,15 @@ def run_scenic_custom_walker_integration(
         try:
             ego_location = ego.get_transform().location
             initial_ego_location_xyz = location_to_xyz(ego_location)
+            ego_attribute_color = ego.attributes.get("color")
             ego_location_text = (
                 f" location=({ego_location.x:.2f}, {ego_location.y:.2f}, {ego_location.z:.2f})"
             )
+            ego_color_text = f" color={ego_attribute_color}" if ego_attribute_color else ""
             detected_ego = {
                 "actor_id": ego.id,
                 "type_id": ego.type_id,
+                "color": ego_attribute_color,
                 "location": {
                     "x": float(ego_location.x),
                     "y": float(ego_location.y),
@@ -2257,10 +2260,11 @@ def run_scenic_custom_walker_integration(
             }
         except RuntimeError:
             ego_location_text = ""
+            ego_color_text = ""
 
         logger(
             f"Detected Scenic ego actor id={ego.id} type={ego.type_id} "
-            f"map={safe_map_name(world)}{ego_location_text}"
+            f"map={safe_map_name(world)}{ego_location_text}{ego_color_text}"
         )
 
         tracked_actors = {"ego": ego.id}
