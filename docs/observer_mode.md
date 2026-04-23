@@ -30,6 +30,20 @@ Run observer mode:
 Carla-0.9.16-source/_DAMOS/scripts/run_scenic_custom_walkers_town10hd.sh --restart --headless
 ```
 
+Run observer mode and verify the latest report without opening the CARLA GUI:
+
+```bash
+cd /home/vvu/vv/DAMOS/Carla-0.9.16-source
+_DAMOS/scripts/check_scenic_observers_headless.sh --port 2212 --scenic-time 8
+```
+
+Verify an existing report only:
+
+```bash
+cd /home/vvu/vv/DAMOS/Carla-0.9.16-source
+_DAMOS/scripts/verify_observer_report.py --port 2212
+```
+
 Run movement smoke test:
 
 ```bash

@@ -64,6 +64,15 @@ custom walkers from the outside:
 _DAMOS/scripts/run_scenic_custom_walkers_town10hd.sh --restart --headless
 ```
 
+For a GUI-free pass/fail check, run:
+
+```bash
+_DAMOS/scripts/check_scenic_observers_headless.sh --port 2212 --scenic-time 8
+```
+
+This starts the same headless integration, then prints a table summary from the
+latest JSON report for that port.
+
 This launcher:
 
 - starts or reuses the source-build server on `Town10HD_Opt`
@@ -132,6 +141,8 @@ CARLA_PYTHON_BIN=/path/to/python _DAMOS/scripts/run_custom_walkers_demo.sh
 
 - `_DAMOS/scripts/run_custom_walkers_demo.sh`
 - `_DAMOS/scripts/run_scenic_custom_walkers_town10hd.sh`
+- `_DAMOS/scripts/check_scenic_observers_headless.sh`
+- `_DAMOS/scripts/verify_observer_report.py`
 - `_DAMOS/scripts/run_scenic_with_custom_walkers.py`
 - `_DAMOS/scripts/custom_walker_runtime.py`
 - `_DAMOS/scripts/scenic_custom_walker_injector.py`
