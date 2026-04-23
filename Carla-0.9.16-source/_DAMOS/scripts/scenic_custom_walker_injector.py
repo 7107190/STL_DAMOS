@@ -9,6 +9,8 @@ import math
 import pathlib
 import re
 import subprocess
+import sys
+import threading
 import time
 from typing import Callable
 
@@ -1062,13 +1064,19 @@ def sample_tracked_actors(
     timestamp_seconds,
     *,
     ego_tracking_state: EgoTrackingState | None = None,
+    skip_labels=(),
+    snapshot=None,
 ):
-    try:
-        snapshot = world.get_snapshot()
-    except RuntimeError:
-        snapshot = None
+    skipped = set(skip_labels)
+    if snapshot is None:
+        try:
+            snapshot = world.get_snapshot()
+        except RuntimeError:
+            snapshot = None
 
     for label, actor_id in tracked_actor_ids.items():
+        if label in skipped:
+            continue
         if label == "ego":
             actor = resolve_current_ego_actor(
                 world,
@@ -1109,6 +1117,69 @@ def sample_tracked_actors(
                 "z": float(location.z),
             }
         )
+
+
+def start_continuous_ego_sampler(
+    host,
+    port,
+    trajectory_samples,
+    ego_tracking_state: EgoTrackingState,
+    *,
+    interval_seconds: float,
+):
+    sample_client = carla.Client(host, int(port))
+    sample_client.set_timeout(2.0)
+    stop_event = threading.Event()
+    sample_lock = threading.Lock()
+    started_at = time.monotonic()
+    interval = max(0.05, min(0.2, float(interval_seconds)))
+    world = safe_get_world(sample_client)
+
+    def run_sampler():
+        nonlocal world
+        tracked_ego = {"ego": ego_tracking_state.preferred_id}
+        last_sample_at = None
+        while not stop_event.is_set():
+            if world is None:
+                world = safe_get_world(sample_client)
+                if world is None:
+                    stop_event.wait(interval)
+                    continue
+            try:
+                snapshot = world.wait_for_tick(1.0)
+            except RuntimeError:
+                world = safe_get_world(sample_client)
+                stop_event.wait(interval)
+                continue
+            now = time.monotonic()
+            if last_sample_at is not None and now - last_sample_at < interval:
+                continue
+            if world is not None:
+                with sample_lock:
+                    sample_tracked_actors(
+                        world,
+                        tracked_ego,
+                        trajectory_samples,
+                        now - started_at,
+                        ego_tracking_state=ego_tracking_state,
+                        snapshot=snapshot,
+                    )
+                last_sample_at = now
+
+    thread = threading.Thread(
+        target=run_sampler,
+        name="damos-ego-trajectory-sampler",
+        daemon=True,
+    )
+    thread.start()
+    return {"stop_event": stop_event, "thread": thread, "lock": sample_lock}
+
+
+def stop_continuous_ego_sampler(sampler) -> None:
+    if sampler is None:
+        return
+    sampler["stop_event"].set()
+    sampler["thread"].join(timeout=2.0)
 
 
 def build_tracked_actor_map(ego, spawned_walkers):
@@ -1188,6 +1259,85 @@ def plot_segments_for_track(track_key: str, samples):
     if track_key == "ego":
         return [samples] if samples else []
     return split_trajectory_segments(samples)
+
+
+def xy_for_sample(sample) -> tuple[float, float]:
+    return (float(sample["x"]), float(sample["y"]))
+
+
+def location_for_sample(sample):
+    return carla.Location(
+        x=float(sample["x"]),
+        y=float(sample["y"]),
+        z=float(sample.get("z", 0.0)),
+    )
+
+
+def polyline_distance(points) -> float:
+    distance = 0.0
+    for first, second in zip(points, points[1:]):
+        dx = float(second[0]) - float(first[0])
+        dy = float(second[1]) - float(first[1])
+        distance += (dx * dx + dy * dy) ** 0.5
+    return distance
+
+
+def build_ego_route_planner(world, *, sampling_resolution: float = 1.5):
+    python_api = SOURCE_ROOT / "PythonAPI" / "carla"
+    if python_api.exists() and str(python_api) not in sys.path:
+        sys.path.insert(0, str(python_api))
+    try:
+        from agents.navigation.global_route_planner import GlobalRoutePlanner
+
+        return GlobalRoutePlanner(world.get_map(), sampling_resolution)
+    except (ImportError, RuntimeError, AttributeError, TypeError):
+        return None
+
+
+def route_points_between_samples(route_planner, first, second):
+    fallback = [xy_for_sample(first), xy_for_sample(second)]
+    if route_planner is None:
+        return fallback
+
+    direct_distance = distance_between_samples(first, second)
+    if direct_distance < 1.0:
+        return fallback
+
+    try:
+        route = route_planner.trace_route(
+            location_for_sample(first),
+            location_for_sample(second),
+        )
+    except (RuntimeError, AttributeError, TypeError, ValueError):
+        return fallback
+
+    if not route:
+        return fallback
+
+    points = [xy_for_sample(first)]
+    for waypoint, _road_option in route:
+        location = waypoint.transform.location
+        points.append((float(location.x), float(location.y)))
+    points.append(xy_for_sample(second))
+
+    # If the route planner returns an implausible detour, keep the raw observed
+    # segment instead of drawing a misleading loop across the map.
+    if polyline_distance(points) > max(60.0, direct_distance * 3.0):
+        return fallback
+    return points
+
+
+def plot_points_for_segment(track_key: str, samples, *, ego_route_planner=None):
+    if track_key != "ego" or len(samples) < 2:
+        return [xy_for_sample(sample) for sample in samples]
+
+    points = []
+    for first, second in zip(samples, samples[1:]):
+        segment_points = route_points_between_samples(ego_route_planner, first, second)
+        if points and segment_points:
+            segment_points = segment_points[1:]
+        points.extend(segment_points)
+    return points or [xy_for_sample(sample) for sample in samples]
 
 
 def label_for_track(track_key: str) -> str:
@@ -1577,6 +1727,8 @@ def save_trajectory_report(
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
+    ego_route_planner = build_ego_route_planner(world)
+
     fig, ax = plt.subplots(figsize=(12, 10))
     draw_carla_map_context(ax, world)
 
@@ -1656,8 +1808,15 @@ def save_trajectory_report(
         segments = plot_segments_for_track(key, samples)
         first_segment = True
         for segment in segments:
-            xs = [sample["x"] for sample in segment]
-            ys = [sample["y"] for sample in segment]
+            plot_points = plot_points_for_segment(
+                key,
+                segment,
+                ego_route_planner=ego_route_planner,
+            )
+            if len(plot_points) < 2:
+                continue
+            xs = [point[0] for point in plot_points]
+            ys = [point[1] for point in plot_points]
             ax.plot(
                 xs,
                 ys,
@@ -1673,6 +1832,16 @@ def save_trajectory_report(
             ys = [sample["y"] for sample in samples]
             start_label = f"{label_for_track(key)} start"
             end_label = f"{label_for_track(key)} end"
+            if group_key == "ego" and len(xs) > 2:
+                ax.scatter(
+                    xs[1:-1],
+                    ys[1:-1],
+                    color=color,
+                    s=22,
+                    marker=".",
+                    alpha=0.75,
+                    zorder=6,
+                )
             ax.scatter(xs[0], ys[0], color=color, s=42, marker="o", zorder=5)
             ax.scatter(xs[-1], ys[-1], color=color, s=56, marker="X", zorder=6)
             ax.annotate(
@@ -1822,8 +1991,15 @@ def save_trajectory_report(
         segments = plot_segments_for_track(key, samples)
         first_segment = True
         for segment in segments:
-            xs = [sample["x"] for sample in segment]
-            ys = [sample["y"] for sample in segment]
+            plot_points = plot_points_for_segment(
+                key,
+                segment,
+                ego_route_planner=ego_route_planner,
+            )
+            if len(plot_points) < 2:
+                continue
+            xs = [point[0] for point in plot_points]
+            ys = [point[1] for point in plot_points]
             focus_ax.plot(
                 xs,
                 ys,
@@ -1841,6 +2017,16 @@ def save_trajectory_report(
             first_segment = False
         xs = [sample["x"] for sample in samples]
         ys = [sample["y"] for sample in samples]
+        if group_key == "ego" and len(xs) > 2:
+            focus_ax.scatter(
+                xs[1:-1],
+                ys[1:-1],
+                color=color,
+                s=24,
+                marker=".",
+                alpha=0.75,
+                zorder=6,
+            )
         focus_ax.scatter(xs[0], ys[0], color=color, s=42, marker="o", zorder=5)
         focus_ax.scatter(xs[-1], ys[-1], color=color, s=56, marker="X", zorder=6)
 
@@ -1948,6 +2134,8 @@ def run_random_walker_routing(
     sample_interval_seconds=0.5,
     ego_tracking_state: EgoTrackingState | None = None,
     observer_mode: bool = False,
+    sample_lock=None,
+    skip_sample_labels=(),
 ):
     scenic_deadline = time.monotonic() + max(1.0, duration_seconds + 10.0)
     started_at = time.monotonic()
@@ -1990,13 +2178,25 @@ def run_random_walker_routing(
             and trajectory_samples is not None
             and (last_sample_at is None or now - last_sample_at >= sample_interval_seconds)
         ):
-            sample_tracked_actors(
-                world,
-                tracked_actors,
-                trajectory_samples,
-                now - started_at,
-                ego_tracking_state=ego_tracking_state,
-            )
+            if sample_lock is None:
+                sample_tracked_actors(
+                    world,
+                    tracked_actors,
+                    trajectory_samples,
+                    now - started_at,
+                    ego_tracking_state=ego_tracking_state,
+                    skip_labels=skip_sample_labels,
+                )
+            else:
+                with sample_lock:
+                    sample_tracked_actors(
+                        world,
+                        tracked_actors,
+                        trajectory_samples,
+                        now - started_at,
+                        ego_tracking_state=ego_tracking_state,
+                        skip_labels=skip_sample_labels,
+                    )
             last_sample_at = now
     return world
 
@@ -2021,6 +2221,10 @@ def run_scenic_custom_walker_integration(
     observer_metrics = ()
     observer_camera_specs = ()
     observer_camera_attachments = ()
+    ego_sampler = None
+    tracked_actors = {}
+    trajectory_samples = {}
+    ego_tracking_state = None
 
     try:
         client, world = connect_to_world(
@@ -2042,8 +2246,10 @@ def run_scenic_custom_walker_integration(
                 f"{exc}\nRecent Scenic output:\n{scenic_tail}"
             ) from exc
 
+        initial_ego_location_xyz = None
         try:
             ego_location = ego.get_transform().location
+            initial_ego_location_xyz = location_to_xyz(ego_location)
             ego_location_text = (
                 f" location=({ego_location.x:.2f}, {ego_location.y:.2f}, {ego_location.z:.2f})"
             )
@@ -2062,6 +2268,29 @@ def run_scenic_custom_walker_integration(
         logger(
             f"Detected Scenic ego actor id={ego.id} type={ego.type_id} "
             f"map={safe_map_name(world)}{ego_location_text}"
+        )
+
+        tracked_actors = {"ego": ego.id}
+        ego_tracking_state = EgoTrackingState(
+            preferred_id=ego.id,
+            preferred_type_id=ego.type_id,
+            last_resolved_id=ego.id,
+            last_valid_location_xyz=initial_ego_location_xyz,
+            last_valid_timestamp=0.0,
+        )
+        sample_tracked_actors(
+            world,
+            tracked_actors,
+            trajectory_samples,
+            0.0,
+            ego_tracking_state=ego_tracking_state,
+        )
+        ego_sampler = start_continuous_ego_sampler(
+            config.host,
+            config.port,
+            trajectory_samples,
+            ego_tracking_state,
+            interval_seconds=config.sample_interval_seconds,
         )
 
         min_anchor_candidates = 1
@@ -2150,23 +2379,30 @@ def run_scenic_custom_walker_integration(
         else:
             logger("Observer camera attachment disabled for this run.")
 
-        tracked_actors = build_tracked_actor_map(ego, spawned_walkers)
-        ego_tracking_state = EgoTrackingState(
-            preferred_id=ego.id,
-            preferred_type_id=ego.type_id,
-            last_resolved_id=ego.id,
-            last_valid_location_xyz=location_to_xyz(ego.get_transform().location),
-            last_valid_timestamp=0.0,
+        tracked_actors.update(
+            (label, actor_id)
+            for label, actor_id in build_tracked_actor_map(ego, spawned_walkers).items()
+            if label != "ego"
         )
-        trajectory_samples = {}
         discover_scenic_support_actors(world, ego, spawned_walkers, tracked_actors)
-        sample_tracked_actors(
-            world,
-            tracked_actors,
-            trajectory_samples,
-            0.0,
-            ego_tracking_state=ego_tracking_state,
-        )
+        if ego_sampler is None:
+            sample_tracked_actors(
+                world,
+                tracked_actors,
+                trajectory_samples,
+                0.0,
+                ego_tracking_state=ego_tracking_state,
+            )
+        else:
+            with ego_sampler["lock"]:
+                sample_tracked_actors(
+                    world,
+                    tracked_actors,
+                    trajectory_samples,
+                    0.0,
+                    ego_tracking_state=ego_tracking_state,
+                    skip_labels=("ego",),
+                )
 
         if config.observer_mode:
             logger("Spawned custom observers during Scenic simulation:")
@@ -2192,8 +2428,12 @@ def run_scenic_custom_walker_integration(
             sample_interval_seconds=config.sample_interval_seconds,
             ego_tracking_state=ego_tracking_state,
             observer_mode=config.observer_mode,
+            sample_lock=ego_sampler["lock"] if ego_sampler is not None else None,
+            skip_sample_labels=("ego",),
         )
 
+        stop_continuous_ego_sampler(ego_sampler)
+        ego_sampler = None
         sample_tracked_actors(
             world,
             tracked_actors,
@@ -2320,5 +2560,6 @@ def run_scenic_custom_walker_integration(
             trajectory_report_json=trajectory_report_json,
         )
     finally:
+        stop_continuous_ego_sampler(ego_sampler)
         destroy_spawned_walkers(spawned_walkers)
         terminate_process(scenic_proc)
