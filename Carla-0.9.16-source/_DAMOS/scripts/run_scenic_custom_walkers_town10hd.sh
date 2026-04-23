@@ -19,6 +19,7 @@ HEADLESS=0
 RESTART=0
 SCENIC_TIME=8
 N_SCENARIOS=1
+SELECTED_SCENARIO=""
 MIN_MOVE_METERS=0.5
 OBSERVER_MODE=1
 MAX_OBSERVER_ANCHOR_DISTANCE=22.0
@@ -44,6 +45,7 @@ Options:
   --port N               CARLA RPC port (default: 2000)
   --scenic-time N        Scenic simulation time cap in seconds (default: 8)
   --n-scenarios N        N_SCENARIOS override for S_.scenic (default: 1)
+  --selected-scenario S  Force one abnormal scenario: S1..S9
   --observer-mode        Place custom walkers as static observers (default)
   --walker-mode          Route custom walkers and require movement
   --min-move-meters N    Walker-mode movement requirement in meters
@@ -186,6 +188,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --n-scenarios)
       N_SCENARIOS="$2"
+      shift 2
+      ;;
+    --selected-scenario)
+      SELECTED_SCENARIO="$2"
       shift 2
       ;;
     --min-move-meters)
@@ -387,6 +393,11 @@ if [[ "$SAVE_TRAJECTORY_REPORT" -eq 0 ]]; then
   report_args=(--no-trajectory-report)
 fi
 
+selected_scenario_args=()
+if [[ -n "$SELECTED_SCENARIO" ]]; then
+  selected_scenario_args=(--selected-scenario "$SELECTED_SCENARIO")
+fi
+
 set +e
 "$PYTHON_BIN" "$RUNNER" \
   --host 127.0.0.1 \
@@ -394,6 +405,7 @@ set +e
   --wait-for-server-seconds "$SERVER_WAIT_SECONDS" \
   --scenic-time "$SCENIC_TIME" \
   --n-scenarios "$N_SCENARIOS" \
+  "${selected_scenario_args[@]}" \
   "${mode_args[@]}" \
   --min-move-meters "$MIN_MOVE_METERS" \
   --max-observer-anchor-distance "$MAX_OBSERVER_ANCHOR_DISTANCE" \

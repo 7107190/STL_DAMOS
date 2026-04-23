@@ -59,6 +59,7 @@ class ScenicCustomWalkerConfig:
     wait_for_support_seconds: float = 20.0
     scenic_time: float = 8.0
     n_scenarios: int = 1
+    selected_scenario: str | None = None
     min_move_meters: float = 0.5
     observer_mode: bool = True
     max_observer_anchor_distance: float = 22.0
@@ -133,6 +134,12 @@ def add_integration_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--wait-for-support-seconds", type=float, default=20.0)
     parser.add_argument("--scenic-time", type=float, default=8.0)
     parser.add_argument("--n-scenarios", type=int, default=1)
+    parser.add_argument(
+        "--selected-scenario",
+        choices=("S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8", "S9"),
+        default=None,
+        help="Force BaseSetup to compose one specific Scenic abnormal scenario.",
+    )
     parser.add_argument("--min-move-meters", type=float, default=0.5)
     mode_group = parser.add_mutually_exclusive_group()
     mode_group.add_argument(
@@ -226,6 +233,7 @@ def config_from_args(args: argparse.Namespace) -> ScenicCustomWalkerConfig:
         wait_for_support_seconds=args.wait_for_support_seconds,
         scenic_time=args.scenic_time,
         n_scenarios=args.n_scenarios,
+        selected_scenario=args.selected_scenario,
         min_move_meters=args.min_move_meters,
         observer_mode=args.observer_mode,
         max_observer_anchor_distance=args.max_observer_anchor_distance,
@@ -407,12 +415,25 @@ def nearest_candidate_to_location(candidates, location):
     )
 
 
+def serialize_anchor_member_snapshot(candidate):
+    return {
+        "actor_id": candidate["actor_id"],
+        "type_id": candidate["type_id"],
+        "category": candidate["category"],
+        "location": serialize_location(candidate["location"]),
+    }
+
+
 def make_semantic_anchor_candidate(candidates, *, label, kind, category=None):
+    member_snapshots = tuple(
+        serialize_anchor_member_snapshot(candidate) for candidate in candidates
+    )
     if len(candidates) == 1 and kind == "actor":
         candidate = dict(candidates[0])
         candidate.setdefault("label", f"scenic.{candidate['category']}:{candidate['actor_id']}")
         candidate.setdefault("anchor_kind", "actor")
         candidate.setdefault("member_actor_ids", (candidate["actor_id"],))
+        candidate.setdefault("member_actor_snapshots", member_snapshots)
         candidate.setdefault("member_count", 1)
         candidate.setdefault("dynamic_actor_location", True)
         return candidate
@@ -427,6 +448,7 @@ def make_semantic_anchor_candidate(candidates, *, label, kind, category=None):
     semantic_candidate["member_actor_ids"] = tuple(
         sorted(candidate["actor_id"] for candidate in candidates)
     )
+    semantic_candidate["member_actor_snapshots"] = member_snapshots
     semantic_candidate["member_count"] = len(candidates)
     semantic_candidate["dynamic_actor_location"] = False
     semantic_candidate["distance_to_ego"] = min(
@@ -451,7 +473,7 @@ def cluster_candidates_by_distance(candidates, *, max_distance):
     return clusters
 
 
-def semantic_anchor_candidates(candidates):
+def semantic_anchor_candidates(candidates, *, selected_scenario: str | None = None):
     pedestrians = []
     bicycles = []
     vehicles = []
@@ -477,6 +499,20 @@ def semantic_anchor_candidates(candidates):
                 other_props.append(candidate)
 
     semantic = []
+
+    if selected_scenario == "S4":
+        road_obstacles = [
+            candidate for candidate in candidates if candidate["category"] == "prop"
+        ]
+        if road_obstacles:
+            return [
+                make_semantic_anchor_candidate(
+                    road_obstacles,
+                    label="scenic.obstacle_region:1",
+                    kind="obstacle_region",
+                    category="prop",
+                )
+            ]
 
     if len(pedestrians) > 3:
         for index, cluster in enumerate(
@@ -551,12 +587,31 @@ def semantic_anchor_candidates(candidates):
     return semantic
 
 
+def filter_candidates_for_selected_scenario(candidates, selected_scenario):
+    if selected_scenario in {"S1", "S3", "S8"}:
+        return [
+            candidate for candidate in candidates if candidate["category"] == "pedestrian"
+        ]
+    if selected_scenario == "S2":
+        return [candidate for candidate in candidates if candidate["category"] == "bicycle"]
+    if selected_scenario == "S4":
+        return [candidate for candidate in candidates if candidate["category"] == "prop"]
+    if selected_scenario == "S5":
+        return [candidate for candidate in candidates if candidate["category"] == "vehicle"]
+    if selected_scenario in {"S6", "S7", "S9"}:
+        return [candidate for candidate in candidates if candidate["category"] == "prop"]
+    return candidates
+
+
 def wait_for_anchor_candidates(
     client,
     ego,
     timeout_seconds: float,
     *,
     min_candidates: int = 1,
+    candidate_filter: (
+        Callable[[list[dict[str, object]]], list[dict[str, object]]] | None
+    ) = None,
 ):
     deadline = time.monotonic() + timeout_seconds
     required_candidates = max(1, min_candidates)
@@ -570,8 +625,11 @@ def wait_for_anchor_candidates(
         except RuntimeError:
             time.sleep(1.0)
             continue
-        if len(candidates) >= required_candidates:
-            return world, candidates
+        filtered_candidates = (
+            candidate_filter(candidates) if candidate_filter else candidates
+        )
+        if len(filtered_candidates) >= required_candidates:
+            return world, filtered_candidates
         time.sleep(0.5)
     raise RuntimeError(
         f"Timed out after {timeout_seconds:.0f}s waiting for at least "
@@ -659,6 +717,9 @@ def choose_custom_walker_anchors(
                     observer_role=role_label,
                     anchor_kind=candidate.get("anchor_kind", "actor"),
                     member_actor_ids=tuple(candidate.get("member_actor_ids", ())),
+                    member_actor_snapshots=tuple(
+                        candidate.get("member_actor_snapshots", ())
+                    ),
                     dynamic_actor_location=bool(
                         candidate.get("dynamic_actor_location", True)
                     ),
@@ -678,6 +739,7 @@ def serialize_anchor_assignments(anchors):
                 "observer_role": anchor.observer_role,
                 "anchor_kind": anchor.anchor_kind,
                 "member_actor_ids": list(anchor.member_actor_ids),
+                "member_actors": list(anchor.member_actor_snapshots),
                 "member_count": len(anchor.member_actor_ids) or 1,
                 "anchor_actor_id": anchor.actor_id,
                 "anchor_type_id": anchor.actor_type_id,
@@ -899,6 +961,8 @@ def build_scenic_command(config: ScenicCustomWalkerConfig) -> list[str]:
         "reload_world",
         "0",
     ]
+    if config.selected_scenario:
+        command.extend(["--param", "SELECTED_SCENARIO", config.selected_scenario])
     if config.carla_map:
         command.extend(["--param", "carla_map", config.carla_map])
     if config.map_xodr:
@@ -1142,6 +1206,11 @@ def compute_focus_bounds(trajectory_samples, anchor_assignments, focus_track_key
     for anchor in anchor_assignments:
         xs.append(anchor["anchor_location"]["x"])
         ys.append(anchor["anchor_location"]["y"])
+        for member in anchor.get("member_actors", []):
+            location = member.get("location", {})
+            if "x" in location and "y" in location:
+                xs.append(location["x"])
+                ys.append(location["y"])
     if not xs or not ys:
         return None
     margin = 18.0
@@ -1171,6 +1240,7 @@ def build_cooperation_links(trajectory_samples, anchor_assignments, detected_ego
             "observer_role": anchor.get("observer_role"),
             "anchor_kind": anchor.get("anchor_kind"),
             "member_actor_ids": anchor.get("member_actor_ids", []),
+            "member_actors": anchor.get("member_actors", []),
             "member_count": anchor.get("member_count", 1),
             "anchor_actor_id": anchor["anchor_actor_id"],
             "anchor_type_id": anchor["anchor_type_id"],
@@ -1247,6 +1317,7 @@ def save_trajectory_report(
         "carla_map_param": config.carla_map,
         "map_xodr": config.map_xodr,
         "scenic_time": config.scenic_time,
+        "selected_scenario": config.selected_scenario,
         "custom_walker_mode": "observer" if config.observer_mode else "walker",
         "min_move_meters": config.min_move_meters,
         "movement_metric_window": (
@@ -1306,9 +1377,31 @@ def save_trajectory_report(
     if road_x and road_y:
         ax.scatter(road_x, road_y, s=1, c="#d7d7d7", alpha=0.35, linewidths=0)
 
+    drawn_anchor_indices = set()
+    drew_anchor_members = False
     for anchor in anchor_assignments:
+        anchor_index = anchor.get("anchor_index")
+        if anchor_index in drawn_anchor_indices:
+            continue
+        drawn_anchor_indices.add(anchor_index)
         location = anchor["anchor_location"]
-        label = anchor.get("track_label", anchor["blueprint_id"]).split(".")[-1].replace("_", " ")
+        label = anchor.get("anchor_kind") or anchor.get("anchor_label", "anchor")
+        members = anchor.get("member_actors", [])
+        if members:
+            member_x = [member["location"]["x"] for member in members]
+            member_y = [member["location"]["y"] for member in members]
+            ax.scatter(
+                member_x,
+                member_y,
+                s=24,
+                marker="s",
+                c="#6b7280",
+                alpha=0.75,
+                linewidths=0,
+                label="anchor members" if not drew_anchor_members else None,
+                zorder=4,
+            )
+            drew_anchor_members = True
         ax.scatter(
             location["x"],
             location["y"],
@@ -1318,7 +1411,7 @@ def save_trajectory_report(
             zorder=7,
         )
         ax.annotate(
-            f"{label} anchor",
+            f"{label} ({anchor.get('member_count', 1)})",
             (location["x"], location["y"]),
             xytext=(8, 8),
             textcoords="offset points",
@@ -1429,6 +1522,8 @@ def save_trajectory_report(
         DELIVERYBOT_ID: "#ff7f0e",
     }
 
+    drawn_focus_anchor_indices = set()
+    drew_focus_anchor_members = False
     for anchor in anchor_assignments:
         location = anchor["anchor_location"]
         anchor_key = anchor["anchor_label"]
@@ -1451,22 +1546,42 @@ def save_trajectory_report(
                 label=f"{anchor['track_label']} anchor track",
             )
 
-        focus_ax.scatter(
-            location["x"],
-            location["y"],
-            s=110,
-            marker="*",
-            c=anchor_color,
-            zorder=7,
-        )
-        focus_ax.annotate(
-            f"{anchor['track_label']} anchor",
-            (location["x"], location["y"]),
-            xytext=(8, 8),
-            textcoords="offset points",
-            fontsize=8,
-            color=anchor_color,
-        )
+        anchor_index = anchor.get("anchor_index")
+        if anchor_index not in drawn_focus_anchor_indices:
+            drawn_focus_anchor_indices.add(anchor_index)
+            members = anchor.get("member_actors", [])
+            if members:
+                member_x = [member["location"]["x"] for member in members]
+                member_y = [member["location"]["y"] for member in members]
+                focus_ax.scatter(
+                    member_x,
+                    member_y,
+                    s=34,
+                    marker="s",
+                    c="#6b7280",
+                    alpha=0.8,
+                    linewidths=0,
+                    label="anchor members" if not drew_focus_anchor_members else None,
+                    zorder=4,
+                )
+                drew_focus_anchor_members = True
+            focus_ax.scatter(
+                location["x"],
+                location["y"],
+                s=130,
+                marker="*",
+                c="#111111",
+                zorder=7,
+                label="semantic anchor",
+            )
+            focus_ax.annotate(
+                f"{anchor.get('anchor_kind', 'anchor')} ({anchor.get('member_count', 1)})",
+                (location["x"], location["y"]),
+                xytext=(8, 8),
+                textcoords="offset points",
+                fontsize=8,
+                color="#111111",
+            )
 
         walker_samples = trajectory_samples.get(anchor["track_label"], [])
         if walker_samples:
@@ -1731,8 +1846,15 @@ def run_scenic_custom_walker_integration(
             ego,
             config.wait_for_support_seconds,
             min_candidates=min_anchor_candidates,
+            candidate_filter=lambda candidates: filter_candidates_for_selected_scenario(
+                candidates,
+                config.selected_scenario,
+            ),
         )
-        anchor_candidates = semantic_anchor_candidates(raw_anchor_candidates)
+        anchor_candidates = semantic_anchor_candidates(
+            raw_anchor_candidates,
+            selected_scenario=config.selected_scenario,
+        )
         max_anchor_pairs = effective_anchor_pair_count(config, len(anchor_candidates))
         logger(
             f"Found {len(raw_anchor_candidates)} raw Scenic support actors; "

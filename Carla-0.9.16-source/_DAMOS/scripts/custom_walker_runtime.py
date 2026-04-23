@@ -48,6 +48,7 @@ class CustomWalkerAnchor:
     observer_role: str = ""
     anchor_kind: str = "actor"
     member_actor_ids: tuple[int, ...] = ()
+    member_actor_snapshots: tuple[dict[str, object], ...] = ()
     dynamic_actor_location: bool = True
 
 

@@ -70,6 +70,12 @@ For a GUI-free pass/fail check, run:
 _DAMOS/scripts/check_scenic_observers_headless.sh --port 2212 --scenic-time 8
 ```
 
+To force one abnormal scenario instead of the default random selection:
+
+```bash
+_DAMOS/scripts/check_scenic_observers_headless.sh --port 2215 --scenic-time 8 --selected-scenario S4
+```
+
 This starts the same headless integration, then prints a table summary from the
 latest JSON report for that port.
 

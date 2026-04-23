@@ -37,6 +37,13 @@ cd /home/vvu/vv/DAMOS/Carla-0.9.16-source
 _DAMOS/scripts/check_scenic_observers_headless.sh --port 2212 --scenic-time 8
 ```
 
+Run only one abnormal scenario, for example S4 road obstacles:
+
+```bash
+cd /home/vvu/vv/DAMOS/Carla-0.9.16-source
+_DAMOS/scripts/check_scenic_observers_headless.sh --port 2215 --scenic-time 8 --selected-scenario S4
+```
+
 Verify an existing report only:
 
 ```bash

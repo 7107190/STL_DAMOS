@@ -32,8 +32,28 @@ scenario BaseSetup():
   compose:
     # 실행할 시나리오 개수 (CLI: --param N_SCENARIOS 5)
     N = globalParameters.get('N_SCENARIOS', 2)
+    SELECTED = globalParameters.get('SELECTED_SCENARIO', 'random')
     for i in range(N):
-      do Uniform(S1(), S2(), S3(), S4(), S5(), S6(), S7(), S8(), S9())
+      if SELECTED == 'S1':
+        do S1()
+      elif SELECTED == 'S2':
+        do S2()
+      elif SELECTED == 'S3':
+        do S3()
+      elif SELECTED == 'S4':
+        do S4()
+      elif SELECTED == 'S5':
+        do S5()
+      elif SELECTED == 'S6':
+        do S6()
+      elif SELECTED == 'S7':
+        do S7()
+      elif SELECTED == 'S8':
+        do S8()
+      elif SELECTED == 'S9':
+        do S9()
+      else:
+        do Uniform(S1(), S2(), S3(), S4(), S5(), S6(), S7(), S8(), S9())
     do S_end()
 
 
