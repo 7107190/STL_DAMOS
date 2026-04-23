@@ -162,6 +162,8 @@ def validate_report(data: dict, args: argparse.Namespace) -> tuple[bool, list[st
         movement = float(movements.get(label, 0.0))
         if movement > args.max_movement:
             failures.append(f"{role} observer {label} moved {movement:.3f}m.")
+        if not bool(metric.get("on_sidewalk", False)):
+            failures.append(f"{role} observer {label} is not on a sidewalk.")
         if not args.no_camera_check:
             attached_metric = int(metric.get("attached_sensor_count", -1))
             attached_count = len(cameras_by_track.get(label, []))
@@ -225,6 +227,7 @@ def print_summary(report_path: Path, data: dict, args: argparse.Namespace) -> No
         label = metric.get("track_label", "")
         observer_ok = (
             metric.get("status") == "ok"
+            and bool(metric.get("on_sidewalk", False))
             and int(metric.get("attached_sensor_count", -1)) == args.expected_cameras
             and len(cameras_by_track.get(label, [])) == args.expected_cameras
             and float(movements.get(label, 0.0)) <= args.max_movement
@@ -237,6 +240,7 @@ def print_summary(report_path: Path, data: dict, args: argparse.Namespace) -> No
                 metric.get("anchor_actor_id"),
                 metric.get("observer_to_anchor_distance"),
                 metric.get("facing_error_degrees"),
+                status_text(bool(metric.get("on_sidewalk", False))),
                 movements.get(label, 0.0),
                 len(cameras_by_track.get(label, [])),
                 status_text(observer_ok),
@@ -251,11 +255,12 @@ def print_summary(report_path: Path, data: dict, args: argparse.Namespace) -> No
             "anchor_id",
             "dist_m",
             "yaw_deg",
+            "sidewalk",
             "moved_m",
             "cams",
             "status",
         ),
-        observer_rows or [("-", "-", "-", "-", "-", "-", "-", "-", "FAIL")],
+        observer_rows or [("-", "-", "-", "-", "-", "-", "-", "-", "-", "FAIL")],
     )
     print()
 

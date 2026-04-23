@@ -326,6 +326,105 @@ def pick_destination_away_from(world, current_location, *, min_distance=8.0, att
     return fallback_location
 
 
+def sidewalk_waypoint_for_location(
+    world,
+    location,
+    *,
+    project_to_road=True,
+    max_project_distance=None,
+):
+    try:
+        world_map = world.get_map()
+        waypoint = world_map.get_waypoint(
+            location,
+            project_to_road=project_to_road,
+            lane_type=carla.LaneType.Sidewalk,
+        )
+    except RuntimeError:
+        return None
+    if waypoint is None:
+        return None
+    if max_project_distance is not None:
+        sidewalk_location = waypoint.transform.location
+        if distance_between(sidewalk_location, location) > max_project_distance:
+            return None
+    return waypoint
+
+
+def is_sidewalk_location(world, location, *, max_project_distance=1.5):
+    return (
+        sidewalk_waypoint_for_location(
+            world,
+            location,
+            project_to_road=True,
+            max_project_distance=max_project_distance,
+        )
+        is not None
+    )
+
+
+def sidewalk_spawn_locations_near_anchor(
+    world,
+    anchor_location,
+    *,
+    preferred_radius=7.0,
+    min_radius=3.0,
+    max_radius=22.0,
+    avoid_locations=(),
+    avoid_radius=2.5,
+):
+    candidates = []
+    seen = set()
+    for radius in (4.0, 6.0, 8.0, 10.0, 12.0, 14.0, 18.0, 22.0, 26.0):
+        if radius < min_radius or radius > max_radius + 4.0:
+            continue
+        for angle_degrees in range(0, 360, 15):
+            angle = radians(angle_degrees)
+            probe_location = carla.Location(
+                x=anchor_location.x + radius * cos(angle),
+                y=anchor_location.y + radius * sin(angle),
+                z=anchor_location.z,
+            )
+            waypoint = sidewalk_waypoint_for_location(
+                world,
+                probe_location,
+                project_to_road=True,
+                max_project_distance=max(2.5, min(radius * 0.65, 7.0)),
+            )
+            if waypoint is None:
+                continue
+
+            sidewalk_location = waypoint.transform.location
+            anchor_distance = distance_between(sidewalk_location, anchor_location)
+            if anchor_distance < min_radius or anchor_distance > max_radius:
+                continue
+            if any(
+                distance_between(sidewalk_location, avoid_location) < avoid_radius
+                for avoid_location in avoid_locations
+            ):
+                continue
+
+            dedupe_key = (
+                round(float(sidewalk_location.x), 1),
+                round(float(sidewalk_location.y), 1),
+                round(float(sidewalk_location.z), 1),
+            )
+            if dedupe_key in seen:
+                continue
+            seen.add(dedupe_key)
+            spawn_location = carla.Location(
+                x=float(sidewalk_location.x),
+                y=float(sidewalk_location.y),
+                z=float(sidewalk_location.z) + 0.8,
+            )
+            projection_error = distance_between(sidewalk_location, probe_location)
+            score = abs(anchor_distance - preferred_radius) + projection_error * 0.35
+            candidates.append((score, spawn_location))
+
+    candidates.sort(key=lambda item: item[0])
+    return [location for _score, location in candidates]
+
+
 def pick_navigation_location_near_anchor(
     world,
     anchor_location,
@@ -336,6 +435,8 @@ def pick_navigation_location_near_anchor(
     sample_count=300,
     avoid_locations=(),
     avoid_radius=2.5,
+    require_sidewalk=False,
+    sidewalk_project_distance=2.0,
 ):
     best_location = None
     best_score = None
@@ -345,6 +446,12 @@ def pick_navigation_location_near_anchor(
         for _ in range(sample_count):
             location = world.get_random_location_from_navigation()
             if location is None:
+                continue
+            if require_sidewalk and not is_sidewalk_location(
+                world,
+                location,
+                max_project_distance=sidewalk_project_distance,
+            ):
                 continue
 
             anchor_distance = distance_between(location, anchor_location)
@@ -636,14 +743,16 @@ def spawn_custom_walkers_near_anchors(
     for anchor in anchors:
         blueprint_id = anchor.blueprint_id
         spawned_walker = None
-        navigation_locations = []
-        direct_locations = list(
-            direct_observer_locations_near_anchor(
-                anchor.location,
-                avoid_locations=used_locations,
-                avoid_radius=3.0,
-            )
+        sidewalk_locations = sidewalk_spawn_locations_near_anchor(
+            world,
+            anchor.location,
+            preferred_radius=7.0,
+            min_radius=3.0,
+            max_radius=22.0,
+            avoid_locations=used_locations,
+            avoid_radius=3.0,
         )
+        navigation_locations = []
         for _ in range(12):
             navigation_location = pick_navigation_location_near_anchor(
                 world,
@@ -654,14 +763,16 @@ def spawn_custom_walkers_near_anchors(
                 sample_count=400,
                 avoid_locations=[*used_locations, *navigation_locations],
                 avoid_radius=3.0,
+                require_sidewalk=True,
+                sidewalk_project_distance=2.0,
             )
             if navigation_location is not None:
                 navigation_locations.append(navigation_location)
 
         if prefer_direct_spawn:
-            candidate_locations = [*direct_locations, *navigation_locations]
+            candidate_locations = [*sidewalk_locations, *navigation_locations]
         else:
-            candidate_locations = [*navigation_locations, *direct_locations]
+            candidate_locations = [*navigation_locations, *sidewalk_locations]
 
         for spawn_location in candidate_locations:
             spawn_transform = carla.Transform(
@@ -681,7 +792,12 @@ def spawn_custom_walkers_near_anchors(
             actual_location = candidate.walker.get_transform().location
             spawn_error = distance_between(actual_location, spawn_location)
             anchor_error = distance_between(actual_location, anchor.location)
-            if spawn_error <= 5.0 and anchor_error <= 22.0:
+            sidewalk_ok = is_sidewalk_location(
+                world,
+                actual_location,
+                max_project_distance=2.0,
+            )
+            if spawn_error <= 5.0 and anchor_error <= 22.0 and sidewalk_ok:
                 spawned_walker = candidate
                 used_locations.append(actual_location)
                 break
@@ -725,6 +841,7 @@ def stop_spawned_walker_controllers(spawned_walkers):
 
 
 def find_invalid_anchor_spawned_walkers(
+    world,
     spawned_walkers,
     *,
     max_anchor_error=22.0,
@@ -740,6 +857,9 @@ def find_invalid_anchor_spawned_walkers(
         anchor_error = distance_between(location, spawned_walker.anchor.location)
         if anchor_error > max_anchor_error:
             invalid.append((spawned_walker, f"anchor_error={anchor_error:.2f}"))
+            continue
+        if not is_sidewalk_location(world, location, max_project_distance=2.0):
+            invalid.append((spawned_walker, "not_on_sidewalk"))
     return invalid
 
 
@@ -824,6 +944,8 @@ def send_walkers_to_anchor_destinations(world, spawned_walkers):
             sample_count=400,
             avoid_locations=[current_location, *used_destinations],
             avoid_radius=8.0,
+            require_sidewalk=True,
+            sidewalk_project_distance=2.0,
         )
         if destination is None:
             destination = pick_destination_away_from(

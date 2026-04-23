@@ -26,6 +26,7 @@ from custom_walker_runtime import (
     destroy_spawned_walkers,
     find_invalid_anchor_spawned_walkers,
     initialize_custom_walker_movement,
+    is_sidewalk_location,
     load_observer_camera_specs,
     measure_walker_movements,
     probe_anchor_spawned_walkers,
@@ -928,6 +929,9 @@ def build_observer_metrics(world, spawned_walkers, *, detected_ego=None):
             continue
 
         metric["observer_location"] = serialize_location(location)
+        metric["on_sidewalk"] = bool(
+            is_sidewalk_location(world, location, max_project_distance=2.0)
+        )
         if spawned_walker.anchor is None:
             metric["status"] = "missing_anchor"
             metrics.append(metric)
@@ -2186,12 +2190,13 @@ def inject_custom_walkers_for_anchors(
             except RuntimeError:
                 time.sleep(0.5)
             invalid = find_invalid_anchor_spawned_walkers(
+                world,
                 spawned_walkers,
                 max_anchor_error=max_observer_anchor_distance,
             )
         else:
             initialize_custom_walker_movement(world, spawned_walkers, random_spawn=True)
-            invalid = find_invalid_anchor_spawned_walkers(spawned_walkers)
+            invalid = find_invalid_anchor_spawned_walkers(world, spawned_walkers)
             if not invalid:
                 invalid = probe_anchor_spawned_walkers(
                     world,
