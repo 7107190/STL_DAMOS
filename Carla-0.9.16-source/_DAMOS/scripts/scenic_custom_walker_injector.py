@@ -45,8 +45,9 @@ DEFAULT_SCENIC_FILE = SOURCE_ROOT / "_DAMOS" / "_scenarios" / "S_.scenic"
 DEFAULT_SCENIC_BIN = pathlib.Path("/home/vvu/anaconda3/envs/carla4/bin/scenic")
 DEFAULT_REPORT_DIR = SOURCE_ROOT / "_DAMOS" / "reports"
 DEFAULT_SENSOR_CONFIG = SOURCE_ROOT.parent / "sensor_config.txt"
-SCENIC_SCENARIO_PATTERN = re.compile(r"^(S[_0-9]+):")
+SCENIC_SCENARIO_PATTERN = re.compile(r"^(S[_0-9]+(?:#\d+)?):")
 BICYCLE_KEYWORDS = ("crossbike", "omafiets", "diamondback", "gazelle", "century")
+DAMOS_SCENARIO_ROLE_PREFIX = "damos."
 
 
 @dataclass(frozen=True)
@@ -363,6 +364,48 @@ def classify_anchor_category(actor) -> tuple[str, int] | None:
     return None
 
 
+def parse_damos_scenario_role(role_name: str | None):
+    if not role_name or not role_name.startswith(DAMOS_SCENARIO_ROLE_PREFIX):
+        return None
+    parts = role_name.split(".")
+    if len(parts) < 3:
+        return None
+    scenario_label = parts[1]
+    instance_token = parts[2]
+    try:
+        scenario_index = int(instance_token)
+    except ValueError:
+        scenario_index = None
+    return {
+        "role_name": role_name,
+        "scenario_label": scenario_label,
+        "scenario_instance": f"{scenario_label}#{instance_token}",
+        "scenario_index": scenario_index,
+    }
+
+
+def scenario_sort_key(candidate):
+    scenario_index = candidate.get("scenario_index")
+    return (
+        scenario_index if scenario_index is not None else 10**9,
+        str(candidate.get("scenario_label") or ""),
+        float(candidate.get("distance_to_ego", float("inf"))),
+        int(candidate.get("actor_id", 0)),
+    )
+
+
+def extract_scenario_labels_from_candidates(candidates) -> tuple[str, ...]:
+    labels = []
+    seen = set()
+    for candidate in sorted(candidates, key=scenario_sort_key):
+        label = candidate.get("scenario_instance") or candidate.get("scenario_label")
+        if not label or label in seen:
+            continue
+        labels.append(label)
+        seen.add(label)
+    return tuple(labels)
+
+
 def collect_scenic_anchor_candidates(world, ego, spawned_walkers=()):
     custom_ids = {spawned_walker.walker.id for spawned_walker in spawned_walkers}
     ego_location = ego.get_transform().location
@@ -378,20 +421,23 @@ def collect_scenic_anchor_candidates(world, ego, spawned_walkers=()):
         classified = classify_anchor_category(actor)
         if classified is None:
             continue
+        scenario_info = parse_damos_scenario_role(actor.attributes.get("role_name"))
+        if scenario_info is None:
+            continue
 
         category, priority = classified
         location = actor.get_transform().location
-        candidates.append(
-            {
-                "actor": actor,
-                "actor_id": actor.id,
-                "type_id": actor.type_id,
-                "category": category,
-                "priority": priority,
-                "distance_to_ego": distance_between(location, ego_location),
-                "location": location,
-            }
-        )
+        candidate = {
+            "actor": actor,
+            "actor_id": actor.id,
+            "type_id": actor.type_id,
+            "category": category,
+            "priority": priority,
+            "distance_to_ego": distance_between(location, ego_location),
+            "location": location,
+        }
+        candidate.update(scenario_info)
+        candidates.append(candidate)
 
     candidates.sort(
         key=lambda item: (item["priority"], item["distance_to_ego"], item["actor_id"])
@@ -423,6 +469,9 @@ def serialize_anchor_member_snapshot(candidate):
         "actor_id": candidate["actor_id"],
         "type_id": candidate["type_id"],
         "category": candidate["category"],
+        "role_name": candidate.get("role_name"),
+        "scenario_label": candidate.get("scenario_label"),
+        "scenario_instance": candidate.get("scenario_instance"),
         "location": serialize_location(candidate["location"]),
     }
 
@@ -457,6 +506,10 @@ def make_semantic_anchor_candidate(candidates, *, label, kind, category=None):
     semantic_candidate["distance_to_ego"] = min(
         float(candidate["distance_to_ego"]) for candidate in candidates
     )
+    semantic_candidate["role_name"] = representative.get("role_name")
+    semantic_candidate["scenario_label"] = representative.get("scenario_label")
+    semantic_candidate["scenario_instance"] = representative.get("scenario_instance")
+    semantic_candidate["scenario_index"] = representative.get("scenario_index")
     return semantic_candidate
 
 
@@ -495,6 +548,31 @@ def cluster_candidates_by_distance(candidates, *, max_distance):
 
 
 def semantic_anchor_candidates(candidates, *, selected_scenario: str | None = None):
+    if selected_scenario is None and candidates and all(
+        candidate.get("scenario_instance") for candidate in candidates
+    ):
+        grouped = {}
+        for candidate in candidates:
+            grouped.setdefault(candidate["scenario_instance"], []).append(candidate)
+        semantic = []
+        for scenario_instance, group in sorted(
+            grouped.items(),
+            key=lambda item: scenario_sort_key(item[1][0]),
+        ):
+            scenario_label = group[0].get("scenario_label", "scenario")
+            semantic.append(
+                make_semantic_anchor_candidate(
+                    group,
+                    label=f"scenic.random_scenario:{scenario_instance}",
+                    kind=f"scenario_{scenario_label.lower()}",
+                    category=group[0]["category"],
+                )
+            )
+        semantic.sort(
+            key=lambda item: (item["priority"], item["distance_to_ego"], item["actor_id"])
+        )
+        return semantic
+
     pedestrians = []
     bicycles = []
     vehicles = []
@@ -631,9 +709,13 @@ def wait_for_anchor_candidates(
     candidate_filter: (
         Callable[[list[dict[str, object]]], list[dict[str, object]]] | None
     ) = None,
+    accumulate_by: Callable[[dict[str, object]], object] | None = None,
+    readiness_check: Callable[[list[dict[str, object]]], bool] | None = None,
+    readiness_label: str | None = None,
 ):
     deadline = time.monotonic() + timeout_seconds
     required_candidates = max(1, min_candidates)
+    accumulated_groups = {} if accumulate_by is not None else None
     while time.monotonic() < deadline:
         world = safe_get_world(client)
         if world is None:
@@ -647,12 +729,33 @@ def wait_for_anchor_candidates(
         filtered_candidates = (
             candidate_filter(candidates) if candidate_filter else candidates
         )
-        if len(filtered_candidates) >= required_candidates:
-            return world, filtered_candidates
+        candidates_to_check = filtered_candidates
+        if accumulated_groups is not None:
+            current_groups = {}
+            for candidate in filtered_candidates:
+                group_key = accumulate_by(candidate)
+                if group_key is None:
+                    continue
+                current_groups.setdefault(group_key, {})[candidate["actor_id"]] = candidate
+            for group_key, group_candidates in current_groups.items():
+                accumulated_groups[group_key] = group_candidates
+            candidates_to_check = [
+                candidate
+                for group_candidates in accumulated_groups.values()
+                for candidate in group_candidates.values()
+            ]
+
+        candidate_count_ready = len(candidates_to_check) >= required_candidates
+        readiness_ok = readiness_check(candidates_to_check) if readiness_check else True
+        if candidate_count_ready and readiness_ok:
+            return world, candidates_to_check
         time.sleep(0.5)
+    readiness_suffix = (
+        f" and {readiness_label}" if readiness_label else ""
+    )
     raise RuntimeError(
         f"Timed out after {timeout_seconds:.0f}s waiting for at least "
-        f"{required_candidates} Scenic support actors."
+        f"{required_candidates} Scenic support actors{readiness_suffix}."
     )
 
 
@@ -2211,6 +2314,7 @@ def run_scenic_custom_walker_integration(
     trajectory_report_json = None
     anchor_assignments = ()
     detected_ego = None
+    resolved_scenario_labels = ()
     observer_metrics = ()
     observer_camera_specs = ()
     observer_camera_attachments = ()
@@ -2293,7 +2397,25 @@ def run_scenic_custom_walker_integration(
             interval_seconds=config.sample_interval_seconds,
         )
 
-        min_anchor_candidates = 1
+        min_anchor_candidates = config.n_scenarios if config.selected_scenario is None else 1
+        readiness_check = None
+        readiness_label = None
+        accumulate_by = None
+        if config.selected_scenario is None:
+            accumulate_by = lambda candidate: candidate.get("scenario_instance")
+            readiness_check = (
+                lambda candidates: len(
+                    {
+                        candidate.get("scenario_instance")
+                        for candidate in candidates
+                        if candidate.get("scenario_instance")
+                    }
+                )
+                >= config.n_scenarios
+            )
+            readiness_label = (
+                f"at least {config.n_scenarios} distinct Scenic scenario instances"
+            )
         world, raw_anchor_candidates = wait_for_anchor_candidates(
             client,
             ego,
@@ -2303,11 +2425,15 @@ def run_scenic_custom_walker_integration(
                 candidates,
                 config.selected_scenario,
             ),
+            accumulate_by=accumulate_by,
+            readiness_check=readiness_check,
+            readiness_label=readiness_label,
         )
         anchor_candidates = semantic_anchor_candidates(
             raw_anchor_candidates,
             selected_scenario=config.selected_scenario,
         )
+        resolved_scenario_labels = extract_scenario_labels_from_candidates(anchor_candidates)
         max_anchor_pairs = effective_anchor_pair_count(config, len(anchor_candidates))
         logger(
             f"Found {len(raw_anchor_candidates)} raw Scenic support actors; "
@@ -2449,6 +2575,8 @@ def run_scenic_custom_walker_integration(
 
         collect_process_output(scenic_proc, output_lines)
         scenario_labels = extract_scenario_labels(output_lines)
+        if resolved_scenario_labels:
+            scenario_labels = resolved_scenario_labels
 
         movement_failures = []
         walker_movements = {}
