@@ -12,7 +12,7 @@ param carla_map = 'Town10HD'
 param snapToGroundDefault = True
 model scenic.simulators.carla.model   # 2D 호환: 실행 시 --2d 옵션
 param EGO_BLUEPRINT = 'vehicle.ford.mustang'
-param EGO_COLOR = Color(0, 0, 1)
+param EGO_COLOR = Color(1, 0, 0)
 
 param weather = Uniform(
   {'cloudiness': 30, 'sun_azimuth_angle': 270, 'sun_altitude_angle': 5, 'scattering_intensity': 60, 'wetness': 20},
@@ -27,7 +27,7 @@ scenario BaseSetup():
     lane = Uniform(*network.lanes)
     spot = new OrientedPoint on lane.centerline
     EGO_BP = globalParameters.get('EGO_BLUEPRINT', 'vehicle.ford.mustang')
-    EGO_CAR_COLOR = globalParameters.get('EGO_COLOR', Color(0, 0, 1))
+    EGO_CAR_COLOR = globalParameters.get('EGO_COLOR', Color(1, 0, 0))
     ego = new Car following roadDirection from spot for Range(-40, -30), \
         with blueprint EGO_BP, \
         with color EGO_CAR_COLOR, \
