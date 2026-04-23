@@ -1010,51 +1010,9 @@ def resolve_current_ego_actor(world, *, ego_tracking_state: EgoTrackingState | N
         except RuntimeError:
             preferred_actor = None
 
-    candidates = []
-    try:
-        actors = world.get_actors()
-    except RuntimeError:
-        return None
-
-    for actor in actors:
-        try:
-            if actor.attributes.get("role_name") != "ego":
-                continue
-            if not actor.type_id.startswith("vehicle."):
-                continue
-            location = actor.get_transform().location
-        except RuntimeError:
-            continue
-        if is_all_zero_location(location):
-            continue
-        candidates.append(
-            (
-                0 if actor.type_id == ego_tracking_state.preferred_type_id else 1,
-                distance_to_xyz(location, ego_tracking_state.last_valid_location_xyz),
-                actor.id,
-                actor,
-            )
-        )
-
-    if not candidates:
-        return None
-
-    candidates.sort(key=lambda item: (item[0], item[1], item[2]))
-    best_type_penalty, best_distance, _, actor = candidates[0]
-    if (
-        ego_tracking_state.last_valid_location_xyz is not None
-        and best_distance != float("inf")
-        and best_distance > 35.0
-        and best_type_penalty >= 0
-    ):
-        return None
-    try:
-        location = actor.get_transform().location
-    except RuntimeError:
-        return None
-    ego_tracking_state.last_resolved_id = actor.id
-    ego_tracking_state.last_valid_location_xyz = location_to_xyz(location)
-    return actor
+    # DAMOS treats Scenic ego as a single vehicle. Do not silently switch to
+    # another role_name=ego actor; that creates impossible plotted trajectories.
+    return None
 
 
 def sample_tracked_actors(
@@ -1257,7 +1215,7 @@ def split_trajectory_segments(samples, *, max_jump_meters: float = 35.0):
 
 def plot_segments_for_track(track_key: str, samples):
     if track_key == "ego":
-        return [samples] if samples else []
+        return split_trajectory_segments(samples, max_jump_meters=20.0)
     return split_trajectory_segments(samples)
 
 
@@ -1296,10 +1254,17 @@ def build_ego_route_planner(world, *, sampling_resolution: float = 1.5):
 
 def route_points_between_samples(route_planner, first, second):
     fallback = [xy_for_sample(first), xy_for_sample(second)]
+    if first.get("actor_id") != second.get("actor_id"):
+        return []
+    if float(second["t"]) < float(first["t"]):
+        return []
+
     if route_planner is None:
         return fallback
 
     direct_distance = distance_between_samples(first, second)
+    if direct_distance > 20.0:
+        return []
     if direct_distance < 1.0:
         return fallback
 
@@ -1807,6 +1772,7 @@ def save_trajectory_report(
         alpha = 0.95 if group_key in {"ego", DELIVERYBOT_ID, HUMANOID_ID} else 0.4
         segments = plot_segments_for_track(key, samples)
         first_segment = True
+        plotted_line = False
         for segment in segments:
             plot_points = plot_points_for_segment(
                 key,
@@ -1825,6 +1791,7 @@ def save_trajectory_report(
                 alpha=alpha,
                 label=label if first_segment else None,
             )
+            plotted_line = True
             first_segment = False
 
         if group_key in {"ego", DELIVERYBOT_ID, HUMANOID_ID}:
@@ -1842,7 +1809,15 @@ def save_trajectory_report(
                     alpha=0.75,
                     zorder=6,
                 )
-            ax.scatter(xs[0], ys[0], color=color, s=42, marker="o", zorder=5)
+            ax.scatter(
+                xs[0],
+                ys[0],
+                color=color,
+                s=42,
+                marker="o",
+                zorder=5,
+                label=label if group_key == "ego" and not plotted_line else None,
+            )
             ax.scatter(xs[-1], ys[-1], color=color, s=56, marker="X", zorder=6)
             ax.annotate(
                 start_label,
@@ -1990,6 +1965,7 @@ def save_trajectory_report(
             legend_label = label_for_track(key)
         segments = plot_segments_for_track(key, samples)
         first_segment = True
+        plotted_line = False
         for segment in segments:
             plot_points = plot_points_for_segment(
                 key,
@@ -2014,6 +1990,7 @@ def save_trajectory_report(
             )
             if first_segment:
                 focus_legend_drawn.add(legend_key)
+            plotted_line = True
             first_segment = False
         xs = [sample["x"] for sample in samples]
         ys = [sample["y"] for sample in samples]
@@ -2027,7 +2004,23 @@ def save_trajectory_report(
                 alpha=0.75,
                 zorder=6,
             )
-        focus_ax.scatter(xs[0], ys[0], color=color, s=42, marker="o", zorder=5)
+        focus_ax.scatter(
+            xs[0],
+            ys[0],
+            color=color,
+            s=42,
+            marker="o",
+            zorder=5,
+            label=(
+                legend_label
+                if group_key == "ego"
+                and not plotted_line
+                and legend_key not in focus_legend_drawn
+                else None
+            ),
+        )
+        if group_key == "ego" and not plotted_line:
+            focus_legend_drawn.add(legend_key)
         focus_ax.scatter(xs[-1], ys[-1], color=color, s=56, marker="X", zorder=6)
 
     if focus_bounds is not None:
@@ -2278,13 +2271,16 @@ def run_scenic_custom_walker_integration(
             last_valid_location_xyz=initial_ego_location_xyz,
             last_valid_timestamp=0.0,
         )
-        sample_tracked_actors(
-            world,
-            tracked_actors,
-            trajectory_samples,
-            0.0,
-            ego_tracking_state=ego_tracking_state,
-        )
+        if initial_ego_location_xyz is not None:
+            trajectory_samples.setdefault("ego", []).append(
+                {
+                    "t": 0.0,
+                    "actor_id": ego.id,
+                    "x": initial_ego_location_xyz[0],
+                    "y": initial_ego_location_xyz[1],
+                    "z": initial_ego_location_xyz[2],
+                }
+            )
         ego_sampler = start_continuous_ego_sampler(
             config.host,
             config.port,
