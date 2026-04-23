@@ -57,7 +57,7 @@ Notion 기준 김기웅의 역할은 메인 시스템 통제와 통합입니다.
 | Scenic 실행 환경 | 완료 | `carla4` 환경에서 Scenic 3.1.0a1 확인 |
 | custom walker asset/runtime | 완료 | `damos_deliverybot`, `damos_humanoid` 생성 및 이동 smoke test 통과 |
 | observer mode | 완료 | custom walker를 이동체가 아니라 비정상 상황 anchor 주변 observer node로 사용 |
-| anchor pair spawn | 완료 | 각 Scenic anchor마다 humanoid 1대와 deliverybot 1대를 배치 |
+| anchor pair spawn | 완료 | 각 의미 단위 Scenic anchor마다 humanoid 1대와 deliverybot 1대를 배치 |
 | observer camera metadata | 완료 | walker용 6방향 RGB 카메라 위치를 `sensor_config.txt`에서 로드하고 sensor actor 부착 |
 | observer 검증 | 완료 | 기존 단일-role 배치 기준 Town10HD_Opt에서 3회 실행 통과, yaw error 0.0도 |
 | GitHub 구조 정리 | 완료 | vvu 구조에 맞춰 `Carla-0.9.16-source/` 아래로 mirror |
@@ -75,12 +75,27 @@ Notion 기준 김기웅의 역할은 메인 시스템 통제와 통합입니다.
 | 이동거리 검증이 중요 | anchor 거리, anchor를 바라보는 yaw error, ego와의 공유 가능성이 중요 |
 | walker navigation 중심 | ego/custom observer 간 데이터 공유 중심 |
 
-현재 spawn 정책은 anchor 하나당 다음 observer pair를 배치하는 방향입니다.
+현재 spawn 정책은 생성 actor 하나하나가 아니라 의미 단위 anchor 후보를 기준으로 합니다.
+`--max-anchor-pairs`를 지정하지 않으면 발견된 모든 의미 단위 anchor 후보에 observer pair를 배치합니다.
 
 | Scenic anchor | 배치 actor | 센서 |
 |---|---|---|
 | 비정상 상황 주변 support actor | `damos_humanoid` 1대 | 6방향 RGB 카메라 |
 | 동일 anchor | `damos_deliverybot` 1대 | 6방향 RGB 카메라 |
+
+현재 Scenic 생성 수와 anchor 후보 정책은 다음과 같습니다.
+
+| 시나리오 | 생성 actor | 의미 단위 anchor 후보 |
+|---|---:|---:|
+| `S1` | 3 | 3 |
+| `S2` | 3 | 3 |
+| `S3` | 3 | 3 |
+| `S4` | 20 | 1 |
+| `S5` | 6 | 1 |
+| `S6` | 36 | 1 |
+| `S7` | 40 | 1 |
+| `S8` | 9 | 최대 3 |
+| `S9` | 20 | 최대 5 |
 
 현재 wrapper 기본값은 observer mode입니다.
 

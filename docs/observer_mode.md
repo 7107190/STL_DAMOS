@@ -6,8 +6,8 @@ The current DAMOS idea is not that custom walkers must physically travel to
 resolve every abnormal situation. For Track 1, the useful behavior is:
 
 1. Scenic creates an abnormal situation.
-2. DAMOS selects Scenic support actors as abnormal anchors.
-3. Each selected anchor receives one humanoid observer and one deliverybot observer.
+2. DAMOS reduces Scenic support actors into semantic abnormal anchors.
+3. Every semantic anchor receives one humanoid observer and one deliverybot observer.
 4. Each observer faces the anchor.
 5. Six RGB cameras are attached to each observer using the walker mount positions
    from `/home/vvu/vv/DAMOS/sensor_config.txt`.
@@ -43,6 +43,23 @@ Verify an existing report only:
 cd /home/vvu/vv/DAMOS/Carla-0.9.16-source
 _DAMOS/scripts/verify_observer_report.py --port 2212
 ```
+
+Default anchor policy:
+
+| Scenario | Raw generated actors | Semantic anchor candidates |
+|---|---:|---:|
+| `S1` pedestrian jaywalking | 3 | 3 |
+| `S2` bicycle jaywalking | 3 | 3 |
+| `S3` blind-area jaywalking | 3 | 3 |
+| `S4` road obstacles | 20 | 1 obstacle region |
+| `S5` illegal sidewalk parking | 6 | 1 vehicle region |
+| `S6` road construction | 36 | 1 construction region |
+| `S7` sidewalk construction | 40 | 1 construction region |
+| `S8` sidewalk crowd | 9 | up to 3 pedestrian clusters |
+| `S9` trash piles | 20 | up to 5 trash-pile clusters |
+
+When `--max-anchor-pairs` is omitted, the injector covers every semantic anchor
+candidate found in the Scenic run.
 
 Run movement smoke test:
 

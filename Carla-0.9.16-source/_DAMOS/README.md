@@ -73,14 +73,17 @@ _DAMOS/scripts/check_scenic_observers_headless.sh --port 2212 --scenic-time 8
 This starts the same headless integration, then prints a table summary from the
 latest JSON report for that port.
 
+Use `--max-anchor-pairs N` only when you intentionally want to cap observer pairs.
+When omitted, every semantic anchor candidate is covered.
+
 This launcher:
 
 - starts or reuses the source-build server on `Town10HD_Opt`
 - runs `_DAMOS/_scenarios/S_.scenic`
 - waits for Scenic to spawn the `ego`
 - waits for Scenic support actors to appear
-- chooses Scenic support-actor anchors and places one `damos_humanoid` plus one
-  `damos_deliverybot` at each selected anchor
+- reduces Scenic support actors into semantic abnormal anchors and places one
+  `damos_humanoid` plus one `damos_deliverybot` at every semantic anchor by default
 - attaches six RGB observer cameras to each custom observer using the walker
   camera mount positions from `/home/vvu/vv/DAMOS/sensor_config.txt`
 - validates observer placement and yaw toward each Scenic anchor

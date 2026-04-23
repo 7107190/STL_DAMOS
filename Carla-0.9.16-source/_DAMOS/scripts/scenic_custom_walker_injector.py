@@ -11,6 +11,8 @@ import subprocess
 import time
 from typing import Callable
 
+import carla
+
 from custom_walker_runtime import (
     CustomWalkerAnchor,
     DELIVERYBOT_ID,
@@ -157,12 +159,22 @@ def add_integration_args(parser: argparse.ArgumentParser) -> None:
         default=None,
         help=(
             "Maximum Scenic anchors to cover. Each selected anchor gets one "
-            "humanoid observer and one deliverybot observer. When omitted, this "
-            "falls back to min(--max-humanoids, --max-deliverybots)."
+            "humanoid observer and one deliverybot observer. When omitted, all "
+            "semantic anchor candidates are covered."
         ),
     )
-    parser.add_argument("--max-deliverybots", type=int, default=2)
-    parser.add_argument("--max-humanoids", type=int, default=2)
+    parser.add_argument(
+        "--max-deliverybots",
+        type=int,
+        default=0,
+        help="Legacy cap kept for compatibility; use --max-anchor-pairs instead.",
+    )
+    parser.add_argument(
+        "--max-humanoids",
+        type=int,
+        default=0,
+        help="Legacy cap kept for compatibility; use --max-anchor-pairs instead.",
+    )
     camera_group = parser.add_mutually_exclusive_group()
     camera_group.add_argument(
         "--attach-observer-cameras",
@@ -250,10 +262,13 @@ def validate_config(config: ScenicCustomWalkerConfig) -> ScenicCustomWalkerConfi
     return config
 
 
-def effective_anchor_pair_count(config: ScenicCustomWalkerConfig) -> int:
+def effective_anchor_pair_count(
+    config: ScenicCustomWalkerConfig,
+    semantic_anchor_count: int,
+) -> int:
     if config.max_anchor_pairs is not None:
         return config.max_anchor_pairs
-    return min(config.max_deliverybots, config.max_humanoids)
+    return semantic_anchor_count
 
 
 def scenic_root_for(config: ScenicCustomWalkerConfig) -> pathlib.Path:
@@ -373,6 +388,169 @@ def collect_scenic_anchor_candidates(world, ego, spawned_walkers=()):
     return candidates
 
 
+def centroid_location(candidates):
+    count = len(candidates)
+    return carla.Location(
+        x=sum(float(candidate["location"].x) for candidate in candidates) / count,
+        y=sum(float(candidate["location"].y) for candidate in candidates) / count,
+        z=sum(float(candidate["location"].z) for candidate in candidates) / count,
+    )
+
+
+def nearest_candidate_to_location(candidates, location):
+    return min(
+        candidates,
+        key=lambda candidate: (
+            distance_between(candidate["location"], location),
+            candidate["actor_id"],
+        ),
+    )
+
+
+def make_semantic_anchor_candidate(candidates, *, label, kind, category=None):
+    if len(candidates) == 1 and kind == "actor":
+        candidate = dict(candidates[0])
+        candidate.setdefault("label", f"scenic.{candidate['category']}:{candidate['actor_id']}")
+        candidate.setdefault("anchor_kind", "actor")
+        candidate.setdefault("member_actor_ids", (candidate["actor_id"],))
+        candidate.setdefault("member_count", 1)
+        candidate.setdefault("dynamic_actor_location", True)
+        return candidate
+
+    center = centroid_location(candidates)
+    representative = nearest_candidate_to_location(candidates, center)
+    semantic_candidate = dict(representative)
+    semantic_candidate["location"] = center
+    semantic_candidate["category"] = category or representative["category"]
+    semantic_candidate["label"] = label
+    semantic_candidate["anchor_kind"] = kind
+    semantic_candidate["member_actor_ids"] = tuple(
+        sorted(candidate["actor_id"] for candidate in candidates)
+    )
+    semantic_candidate["member_count"] = len(candidates)
+    semantic_candidate["dynamic_actor_location"] = False
+    semantic_candidate["distance_to_ego"] = min(
+        float(candidate["distance_to_ego"]) for candidate in candidates
+    )
+    return semantic_candidate
+
+
+def cluster_candidates_by_distance(candidates, *, max_distance):
+    clusters = []
+    for candidate in sorted(
+        candidates,
+        key=lambda item: (item["distance_to_ego"], item["actor_id"]),
+    ):
+        for cluster in clusters:
+            center = centroid_location(cluster)
+            if distance_between(candidate["location"], center) <= max_distance:
+                cluster.append(candidate)
+                break
+        else:
+            clusters.append([candidate])
+    return clusters
+
+
+def semantic_anchor_candidates(candidates):
+    pedestrians = []
+    bicycles = []
+    vehicles = []
+    construction_props = []
+    trash_props = []
+    other_props = []
+
+    for candidate in candidates:
+        type_id = candidate["type_id"].lower()
+        category = candidate["category"]
+        if category == "pedestrian":
+            pedestrians.append(candidate)
+        elif category == "bicycle":
+            bicycles.append(candidate)
+        elif category == "vehicle":
+            vehicles.append(candidate)
+        elif category == "prop":
+            if "trashbag" in type_id:
+                trash_props.append(candidate)
+            elif "streetbarrier" in type_id or "trafficwarning" in type_id:
+                construction_props.append(candidate)
+            else:
+                other_props.append(candidate)
+
+    semantic = []
+
+    if len(pedestrians) > 3:
+        for index, cluster in enumerate(
+            cluster_candidates_by_distance(pedestrians, max_distance=10.0),
+            start=1,
+        ):
+            semantic.append(
+                make_semantic_anchor_candidate(
+                    cluster,
+                    label=f"scenic.pedestrian_cluster:{index}",
+                    kind="pedestrian_cluster",
+                    category="pedestrian",
+                )
+            )
+    else:
+        semantic.extend(
+            make_semantic_anchor_candidate([candidate], label="", kind="actor")
+            for candidate in pedestrians
+        )
+
+    semantic.extend(
+        make_semantic_anchor_candidate([candidate], label="", kind="actor")
+        for candidate in bicycles
+    )
+
+    if vehicles:
+        semantic.append(
+            make_semantic_anchor_candidate(
+                vehicles,
+                label="scenic.vehicle_region:1",
+                kind="vehicle_region",
+                category="vehicle",
+            )
+        )
+
+    if construction_props:
+        semantic.append(
+            make_semantic_anchor_candidate(
+                construction_props,
+                label="scenic.construction_region:1",
+                kind="construction_region",
+                category="prop",
+            )
+        )
+
+    for index, cluster in enumerate(
+        cluster_candidates_by_distance(trash_props, max_distance=3.5),
+        start=1,
+    ):
+        semantic.append(
+            make_semantic_anchor_candidate(
+                cluster,
+                label=f"scenic.trash_pile:{index}",
+                kind="trash_pile",
+                category="prop",
+            )
+        )
+
+    if other_props:
+        semantic.append(
+            make_semantic_anchor_candidate(
+                other_props,
+                label="scenic.obstacle_region:1",
+                kind="obstacle_region",
+                category="prop",
+            )
+        )
+
+    semantic.sort(
+        key=lambda item: (item["priority"], item["distance_to_ego"], item["actor_id"])
+    )
+    return semantic
+
+
 def wait_for_anchor_candidates(
     client,
     ego,
@@ -451,22 +629,15 @@ def choose_custom_walker_anchors(
 
     selected_anchor_candidates = []
     selected_actor_ids = set(blocked_actor_ids)
-    selected_locations = []
     anchors = []
 
-    while len(selected_anchor_candidates) < max_anchor_pairs:
-        candidate = select_anchor_for_blueprint(
-            candidates,
-            ("pedestrian", "prop", "bicycle", "vehicle"),
-            selected_actor_ids,
-            excluded_locations=selected_locations,
-            min_separation=8.0,
-        )
-        if candidate is None:
+    for candidate in candidates:
+        if len(selected_anchor_candidates) >= max_anchor_pairs:
             break
+        if candidate["actor_id"] in selected_actor_ids:
+            continue
         selected_anchor_candidates.append(candidate)
         selected_actor_ids.add(candidate["actor_id"])
-        selected_locations.append(candidate["location"])
 
     for anchor_index, candidate in enumerate(selected_anchor_candidates, start=1):
         for blueprint_id, role_label in (
@@ -479,10 +650,18 @@ def choose_custom_walker_anchors(
                     track_label=f"{blueprint_id}:anchor{anchor_index}",
                     actor_id=candidate["actor_id"],
                     actor_type_id=candidate["type_id"],
-                    label=f"scenic.{candidate['category']}:{candidate['actor_id']}",
+                    label=candidate.get(
+                        "label",
+                        f"scenic.{candidate['category']}:{candidate['actor_id']}",
+                    ),
                     location=candidate["location"],
                     anchor_index=anchor_index,
                     observer_role=role_label,
+                    anchor_kind=candidate.get("anchor_kind", "actor"),
+                    member_actor_ids=tuple(candidate.get("member_actor_ids", ())),
+                    dynamic_actor_location=bool(
+                        candidate.get("dynamic_actor_location", True)
+                    ),
                 )
             )
     return anchors
@@ -497,6 +676,9 @@ def serialize_anchor_assignments(anchors):
                 "track_label": anchor.track_label,
                 "anchor_index": anchor.anchor_index,
                 "observer_role": anchor.observer_role,
+                "anchor_kind": anchor.anchor_kind,
+                "member_actor_ids": list(anchor.member_actor_ids),
+                "member_count": len(anchor.member_actor_ids) or 1,
                 "anchor_actor_id": anchor.actor_id,
                 "anchor_type_id": anchor.actor_type_id,
                 "anchor_label": anchor.label,
@@ -531,6 +713,8 @@ def normalize_degrees(angle: float) -> float:
 
 
 def resolve_anchor_location(world, anchor: CustomWalkerAnchor):
+    if not getattr(anchor, "dynamic_actor_location", True):
+        return anchor.location
     anchor_actor = world.get_actor(anchor.actor_id)
     if anchor_actor is not None:
         try:
@@ -579,6 +763,9 @@ def build_observer_metrics(world, spawned_walkers, *, detected_ego=None):
                 "anchor_actor_id": anchor.actor_id,
                 "anchor_index": anchor.anchor_index,
                 "observer_role": anchor.observer_role,
+                "anchor_kind": anchor.anchor_kind,
+                "member_actor_ids": list(anchor.member_actor_ids),
+                "member_count": len(anchor.member_actor_ids) or 1,
                 "anchor_type_id": anchor.actor_type_id,
                 "anchor_label": anchor.label,
                 "anchor_location": anchor_location_dict,
@@ -982,6 +1169,9 @@ def build_cooperation_links(trajectory_samples, anchor_assignments, detected_ego
             "walker_blueprint_id": anchor["blueprint_id"],
             "anchor_index": anchor.get("anchor_index"),
             "observer_role": anchor.get("observer_role"),
+            "anchor_kind": anchor.get("anchor_kind"),
+            "member_actor_ids": anchor.get("member_actor_ids", []),
+            "member_count": anchor.get("member_count", 1),
             "anchor_actor_id": anchor["anchor_actor_id"],
             "anchor_type_id": anchor["anchor_type_id"],
             "anchor_label": anchor["anchor_label"],
@@ -1535,15 +1725,19 @@ def run_scenic_custom_walker_integration(
             f"map={safe_map_name(world)}{ego_location_text}"
         )
 
-        max_anchor_pairs = effective_anchor_pair_count(config)
         min_anchor_candidates = 1
-        world, anchor_candidates = wait_for_anchor_candidates(
+        world, raw_anchor_candidates = wait_for_anchor_candidates(
             client,
             ego,
             config.wait_for_support_seconds,
             min_candidates=min_anchor_candidates,
         )
-        logger(f"Found {len(anchor_candidates)} Scenic support anchor candidates.")
+        anchor_candidates = semantic_anchor_candidates(raw_anchor_candidates)
+        max_anchor_pairs = effective_anchor_pair_count(config, len(anchor_candidates))
+        logger(
+            f"Found {len(raw_anchor_candidates)} raw Scenic support actors; "
+            f"using {len(anchor_candidates)} semantic anchor candidates."
+        )
         blocked_anchor_actor_ids = set()
         last_anchor_error = None
         for anchor_attempt in range(1, 5):
@@ -1563,6 +1757,8 @@ def run_scenic_custom_walker_integration(
                 location = assignment["anchor_location"]
                 logger(
                     f"  anchor_pair={assignment['anchor_index']} "
+                    f"kind={assignment['anchor_kind']} "
+                    f"members={assignment['member_count']} "
                     f"role={assignment['observer_role']} "
                     f"walker={assignment['blueprint_id']} "
                     f"anchor={assignment['anchor_label']} "

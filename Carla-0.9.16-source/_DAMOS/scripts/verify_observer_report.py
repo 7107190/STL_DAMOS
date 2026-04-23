@@ -201,6 +201,8 @@ def print_summary(report_path: Path, data: dict, args: argparse.Namespace) -> No
         anchor_rows.append(
             (
                 anchor_index,
+                first.get("anchor_kind", "actor"),
+                first.get("member_count", 1),
                 first.get("anchor_actor_id"),
                 first.get("anchor_type_id"),
                 first.get("anchor_label"),
@@ -210,8 +212,8 @@ def print_summary(report_path: Path, data: dict, args: argparse.Namespace) -> No
         )
     print("Anchor coverage")
     print_table(
-        ("anchor", "actor_id", "type", "label", "roles", "status"),
-        anchor_rows or [("-", "-", "-", "-", "-", "FAIL")],
+        ("anchor", "kind", "members", "actor_id", "type", "label", "roles", "status"),
+        anchor_rows or [("-", "-", "-", "-", "-", "-", "-", "FAIL")],
     )
     print()
 

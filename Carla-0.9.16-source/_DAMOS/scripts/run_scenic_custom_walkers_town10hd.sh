@@ -24,8 +24,8 @@ OBSERVER_MODE=1
 MAX_OBSERVER_ANCHOR_DISTANCE=22.0
 MAX_OBSERVER_FACING_ERROR_DEGREES=35.0
 MAX_ANCHOR_PAIRS=""
-MAX_DELIVERYBOTS=2
-MAX_HUMANOIDS=2
+MAX_DELIVERYBOTS=0
+MAX_HUMANOIDS=0
 ATTACH_OBSERVER_CAMERAS=1
 OBSERVER_CAMERA_CONFIG="/home/vvu/vv/DAMOS/sensor_config.txt"
 SAVE_TRAJECTORY_REPORT=1
@@ -51,10 +51,10 @@ Options:
                           Max observer-to-anchor distance in meters (default: 22)
   --max-observer-facing-error-degrees N
                           Max observer yaw error toward anchor (default: 35)
-  --max-anchor-pairs N    Max abnormal anchors to cover; each gets one humanoid
-                          and one deliverybot observer
-  --max-deliverybots N   Max number of deliverybot walkers to inject (default: 2)
-  --max-humanoids N      Max number of humanoid walkers to inject (default: 2)
+  --max-anchor-pairs N    Max semantic anchors to cover; each gets one humanoid
+                          and one deliverybot observer. Default: all candidates
+  --max-deliverybots N   Legacy compatibility cap; prefer --max-anchor-pairs
+  --max-humanoids N      Legacy compatibility cap; prefer --max-anchor-pairs
   --attach-observer-cameras
                           Attach six RGB cameras to each observer (default)
   --no-observer-cameras  Disable observer camera sensor attachment

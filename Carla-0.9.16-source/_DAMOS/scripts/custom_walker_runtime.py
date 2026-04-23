@@ -46,6 +46,9 @@ class CustomWalkerAnchor:
     location: carla.Location
     anchor_index: int = 0
     observer_role: str = ""
+    anchor_kind: str = "actor"
+    member_actor_ids: tuple[int, ...] = ()
+    dynamic_actor_location: bool = True
 
 
 @dataclass(frozen=True)

@@ -45,7 +45,7 @@ scenario S1():  # 보행자 무단 횡단
   setup:
     PED_MIN_SPEED = 1
     THRESHOLD = 13
-    N_PEDS = 20
+    N_PEDS = 3
     spots = [ new OrientedPoint on (Uniform(*network.sidewalks)).centerline
               for _ in range(N_PEDS) ]
     pedestrians = [
@@ -62,7 +62,7 @@ scenario S2(): # 자전거 무단 횡단
   setup:
     BICYCLE_MIN_SPEED = 2
     THRESHOLD = 20
-    N_BICYCLES = 10
+    N_BICYCLES = 3
     spots = [ new OrientedPoint on (Uniform(*network.sidewalks)).centerline
               for _ in range(N_BICYCLES) ]
     bicycles = [
@@ -553,7 +553,7 @@ scenario S8(): # 인도 내 군중
 
 scenario S9(): # 인도 쓰레기 더미
   setup:
-    NUM_CLUSTERS = 30
+    NUM_CLUSTERS = 5
     OFFSETS = [1.0, 1.3]                  # 좌우로 깔 오프셋(m) 리스트 (예: 1m, 1m+0.3m)
     MODEL_LIST = ["static.prop.trashbag"] # 필요하면 여러 모델을 넣어 랜덤 사용
     for k in range(NUM_CLUSTERS):
