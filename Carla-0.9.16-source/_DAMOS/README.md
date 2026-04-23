@@ -115,7 +115,7 @@ The launcher keeps `S_.scenic` unchanged and passes the active map through CLI o
 
 The saved trajectory reports include:
 
-- light gray road-network waypoint backdrop
+- CARLA map context: lane surfaces, lane edges/centerlines, and building footprints
 - Scenic `ego` path
 - `damos_deliverybot` path
 - `damos_humanoid` path

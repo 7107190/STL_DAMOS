@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 import json
+import math
 import pathlib
 import re
 import subprocess
@@ -1299,6 +1300,198 @@ def build_cooperation_links(trajectory_samples, anchor_assignments, detected_ego
     return links
 
 
+def expand_xy_bounds(bounds, margin):
+    if bounds is None:
+        return None
+    min_x, max_x, min_y, max_y = bounds
+    return (min_x - margin, max_x + margin, min_y - margin, max_y + margin)
+
+
+def xy_in_bounds(x, y, bounds):
+    if bounds is None:
+        return True
+    min_x, max_x, min_y, max_y = bounds
+    return min_x <= x <= max_x and min_y <= y <= max_y
+
+
+def xy_points_intersect_bounds(points, bounds):
+    if bounds is None:
+        return True
+    return any(xy_in_bounds(x, y, bounds) for x, y in points)
+
+
+def waypoint_xy(waypoint):
+    location = waypoint.transform.location
+    return float(location.x), float(location.y)
+
+
+def waypoint_lane_edge_xy(waypoint):
+    x, y = waypoint_xy(waypoint)
+    yaw = math.radians(float(waypoint.transform.rotation.yaw))
+    left_x = -math.sin(yaw)
+    left_y = math.cos(yaw)
+    half_width = max(0.1, float(waypoint.lane_width) * 0.5)
+    return (
+        (x + left_x * half_width, y + left_y * half_width),
+        (x - left_x * half_width, y - left_y * half_width),
+    )
+
+
+def split_waypoint_segments(waypoints, *, max_gap=12.0):
+    segments = []
+    current = []
+    previous = None
+    for waypoint in waypoints:
+        if previous is not None:
+            prev_x, prev_y = waypoint_xy(previous)
+            x, y = waypoint_xy(waypoint)
+            if math.hypot(x - prev_x, y - prev_y) > max_gap:
+                if len(current) >= 2:
+                    segments.append(current)
+                current = []
+        current.append(waypoint)
+        previous = waypoint
+    if len(current) >= 2:
+        segments.append(current)
+    return segments
+
+
+def draw_carla_lane_context(ax, carla_map, *, bounds=None):
+    groups = {}
+    try:
+        waypoints = carla_map.generate_waypoints(2.0)
+    except RuntimeError:
+        return 0
+
+    for waypoint in waypoints:
+        try:
+            if waypoint.lane_type != carla.LaneType.Driving:
+                continue
+            key = (waypoint.road_id, waypoint.section_id, waypoint.lane_id)
+        except RuntimeError:
+            continue
+        groups.setdefault(key, []).append(waypoint)
+
+    visible_segments = 0
+    draw_bounds = expand_xy_bounds(bounds, 12.0)
+    for waypoints in groups.values():
+        waypoints.sort(key=lambda waypoint: float(waypoint.s))
+        for segment in split_waypoint_segments(waypoints):
+            centers = [waypoint_xy(waypoint) for waypoint in segment]
+            if not xy_points_intersect_bounds(centers, draw_bounds):
+                continue
+
+            left_edges = []
+            right_edges = []
+            for waypoint in segment:
+                left, right = waypoint_lane_edge_xy(waypoint)
+                left_edges.append(left)
+                right_edges.append(right)
+
+            lane_polygon = [*left_edges, *reversed(right_edges)]
+            if len(lane_polygon) >= 3:
+                xs = [point[0] for point in lane_polygon]
+                ys = [point[1] for point in lane_polygon]
+                ax.fill(
+                    xs,
+                    ys,
+                    facecolor="#f3f4f6",
+                    edgecolor="none",
+                    alpha=0.72,
+                    zorder=-3,
+                )
+
+            for edge_points in (left_edges, right_edges):
+                ax.plot(
+                    [point[0] for point in edge_points],
+                    [point[1] for point in edge_points],
+                    color="#c7cdd7",
+                    linewidth=0.45,
+                    alpha=0.85,
+                    zorder=-1,
+                )
+
+            ax.plot(
+                [point[0] for point in centers],
+                [point[1] for point in centers],
+                color="#8796aa",
+                linewidth=0.45,
+                alpha=0.85,
+                linestyle=(0, (4, 5)),
+                zorder=0,
+            )
+            visible_segments += 1
+    return visible_segments
+
+
+def unique_xy_points(points):
+    seen = set()
+    unique = []
+    for x, y in points:
+        key = (round(float(x), 2), round(float(y), 2))
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append((float(x), float(y)))
+    return unique
+
+
+def sorted_polygon_points(points):
+    center_x = sum(x for x, _y in points) / len(points)
+    center_y = sum(y for _x, y in points) / len(points)
+    return sorted(points, key=lambda point: math.atan2(point[1] - center_y, point[0] - center_x))
+
+
+def draw_carla_building_context(ax, world, *, bounds=None, max_buildings=1800):
+    try:
+        objects = world.get_environment_objects(carla.CityObjectLabel.Buildings)
+    except (AttributeError, RuntimeError):
+        return 0
+
+    from matplotlib.patches import Polygon
+
+    draw_bounds = expand_xy_bounds(bounds, 20.0)
+    drawn = 0
+    for environment_object in objects:
+        try:
+            vertices = environment_object.bounding_box.get_world_vertices(
+                environment_object.transform
+            )
+        except RuntimeError:
+            continue
+        points = unique_xy_points((vertex.x, vertex.y) for vertex in vertices)
+        if len(points) < 3:
+            continue
+        if not xy_points_intersect_bounds(points, draw_bounds):
+            continue
+        polygon = Polygon(
+            sorted_polygon_points(points),
+            closed=True,
+            facecolor="#dedbd2",
+            edgecolor="#b9b3a9",
+            linewidth=0.35,
+            alpha=0.75,
+            zorder=-4,
+        )
+        ax.add_patch(polygon)
+        drawn += 1
+        if drawn >= max_buildings:
+            break
+    return drawn
+
+
+def draw_carla_map_context(ax, world, *, bounds=None):
+    ax.set_facecolor("#fbfaf7")
+    try:
+        carla_map = world.get_map()
+    except RuntimeError:
+        return {"lane_segments": 0, "buildings": 0}
+
+    buildings = draw_carla_building_context(ax, world, bounds=bounds)
+    lane_segments = draw_carla_lane_context(ax, carla_map, bounds=bounds)
+    return {"lane_segments": lane_segments, "buildings": buildings}
+
+
 def save_trajectory_report(
     world,
     trajectory_samples,
@@ -1378,20 +1571,8 @@ def save_trajectory_report(
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    fig, ax = plt.subplots(figsize=(10, 10))
-
-    road_x = []
-    road_y = []
-    try:
-        for waypoint in world.get_map().generate_waypoints(8.0):
-            road_x.append(waypoint.transform.location.x)
-            road_y.append(waypoint.transform.location.y)
-    except RuntimeError:
-        road_x = []
-        road_y = []
-
-    if road_x and road_y:
-        ax.scatter(road_x, road_y, s=1, c="#d7d7d7", alpha=0.35, linewidths=0)
+    fig, ax = plt.subplots(figsize=(12, 10))
+    draw_carla_map_context(ax, world)
 
     drawn_anchor_indices = set()
     drew_anchor_members = False
@@ -1516,19 +1697,8 @@ def save_trajectory_report(
     focus_track_keys = collect_focus_track_keys(trajectory_samples, anchor_assignments)
     focus_bounds = compute_focus_bounds(trajectory_samples, anchor_assignments, focus_track_keys)
 
-    focus_fig, focus_ax = plt.subplots(figsize=(10, 10))
-    if road_x and road_y and focus_bounds is not None:
-        min_x, max_x, min_y, max_y = focus_bounds
-        filtered_x = []
-        filtered_y = []
-        for x, y in zip(road_x, road_y):
-            if min_x <= x <= max_x and min_y <= y <= max_y:
-                filtered_x.append(x)
-                filtered_y.append(y)
-        if filtered_x and filtered_y:
-            focus_ax.scatter(
-                filtered_x, filtered_y, s=2, c="#d7d7d7", alpha=0.45, linewidths=0
-            )
+    focus_fig, focus_ax = plt.subplots(figsize=(12, 10))
+    draw_carla_map_context(focus_ax, world, bounds=focus_bounds)
 
     focus_colors = {
         "ego": "#1f77b4",
