@@ -1184,6 +1184,12 @@ def split_trajectory_segments(samples, *, max_jump_meters: float = 35.0):
     return segments
 
 
+def plot_segments_for_track(track_key: str, samples):
+    if track_key == "ego":
+        return [samples] if samples else []
+    return split_trajectory_segments(samples)
+
+
 def label_for_track(track_key: str) -> str:
     if track_key.startswith(f"{DELIVERYBOT_ID}:"):
         return f"deliverybot {track_key.rsplit(':', 1)[-1]}"
@@ -1640,9 +1646,14 @@ def save_trajectory_report(
         color = colors.get(group_key, "#444444")
         label = label_for_track(key) if group_key not in legend_drawn else None
         legend_drawn.add(group_key)
-        line_width = 2.0 if group_key in {"ego", DELIVERYBOT_ID, HUMANOID_ID} else 1.0
+        if group_key == "ego":
+            line_width = 2.8
+        elif group_key in {DELIVERYBOT_ID, HUMANOID_ID}:
+            line_width = 2.0
+        else:
+            line_width = 1.0
         alpha = 0.95 if group_key in {"ego", DELIVERYBOT_ID, HUMANOID_ID} else 0.4
-        segments = split_trajectory_segments(samples)
+        segments = plot_segments_for_track(key, samples)
         first_segment = True
         for segment in segments:
             xs = [sample["x"] for sample in segment]
@@ -1808,7 +1819,7 @@ def save_trajectory_report(
         else:
             legend_key = group_key
             legend_label = label_for_track(key)
-        segments = split_trajectory_segments(samples)
+        segments = plot_segments_for_track(key, samples)
         first_segment = True
         for segment in segments:
             xs = [sample["x"] for sample in segment]
@@ -1817,7 +1828,7 @@ def save_trajectory_report(
                 xs,
                 ys,
                 color=color,
-                linewidth=2.2,
+                linewidth=3.0 if group_key == "ego" else 2.2,
                 alpha=0.95,
                 label=(
                     legend_label
