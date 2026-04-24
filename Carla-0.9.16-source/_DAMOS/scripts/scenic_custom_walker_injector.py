@@ -571,6 +571,16 @@ def semantic_anchor_candidates(candidates, *, selected_scenario: str | None = No
             key=lambda item: scenario_sort_key(item[1][0]),
         ):
             scenario_label = group[0].get("scenario_label", "scenario")
+            if scenario_label == "S4":
+                semantic.extend(
+                    make_individual_anchor_candidates(
+                        group,
+                        label_prefix=f"scenic.random_scenario:{scenario_instance}.road_obstacle",
+                        kind="scenario_s4_road_obstacle",
+                        category="prop",
+                    )
+                )
+                continue
             semantic.append(
                 make_semantic_anchor_candidate(
                     group,
