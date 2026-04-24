@@ -7,6 +7,7 @@ from dataclasses import dataclass
 import json
 import math
 import pathlib
+import random
 import re
 import subprocess
 import sys
@@ -69,7 +70,7 @@ class ScenicCustomWalkerConfig:
     observer_mode: bool = True
     max_observer_anchor_distance: float = 22.0
     max_observer_facing_error_degrees: float = 35.0
-    observer_blueprint: str = "deliverybot"
+    observer_blueprint: str = "random"
     max_anchor_pairs: int | None = None
     max_deliverybots: int = 2
     max_humanoids: int = 2
@@ -168,9 +169,12 @@ def add_integration_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--max-observer-facing-error-degrees", type=float, default=35.0)
     parser.add_argument(
         "--observer-blueprint",
-        choices=("deliverybot", "humanoid"),
-        default="deliverybot",
-        help="Observer type to place at each Scenic anchor (default: deliverybot).",
+        choices=("deliverybot", "humanoid", "random"),
+        default="random",
+        help=(
+            "Observer type to place at each Scenic anchor. Use random to mix "
+            "deliverybot and humanoid observers (default: random)."
+        ),
     )
     parser.add_argument(
         "--max-anchor-pairs",
@@ -280,8 +284,10 @@ def validate_config(config: ScenicCustomWalkerConfig) -> ScenicCustomWalkerConfi
         raise ValueError("--max-observer-anchor-distance must be positive.")
     if not 0.0 <= config.max_observer_facing_error_degrees <= 180.0:
         raise ValueError("--max-observer-facing-error-degrees must be between 0 and 180.")
-    if config.observer_blueprint not in {"deliverybot", "humanoid"}:
-        raise ValueError("--observer-blueprint must be either deliverybot or humanoid.")
+    if config.observer_blueprint not in {"deliverybot", "humanoid", "random"}:
+        raise ValueError(
+            "--observer-blueprint must be deliverybot, humanoid, or random."
+        )
     return config
 
 
@@ -823,6 +829,21 @@ def observer_blueprint_config(observer_blueprint: str) -> tuple[str, str]:
     return DELIVERYBOT_ID, "deliverybot"
 
 
+def observer_blueprint_configs(observer_blueprint: str, count: int) -> list[tuple[str, str]]:
+    if count <= 0:
+        return []
+    if observer_blueprint != "random":
+        return [observer_blueprint_config(observer_blueprint)] * count
+
+    base_configs = [
+        (DELIVERYBOT_ID, "deliverybot"),
+        (HUMANOID_ID, "humanoid"),
+    ]
+    configs = [base_configs[index % len(base_configs)] for index in range(count)]
+    random.shuffle(configs)
+    return configs
+
+
 def choose_custom_walker_anchors(
     candidates,
     *,
@@ -847,8 +868,15 @@ def choose_custom_walker_anchors(
         selected_anchor_candidates.append(candidate)
         selected_actor_ids.add(candidate["actor_id"])
 
-    for anchor_index, candidate in enumerate(selected_anchor_candidates, start=1):
-        blueprint_id, role_label = observer_blueprint_config(observer_blueprint)
+    observer_configs = observer_blueprint_configs(
+        observer_blueprint,
+        len(selected_anchor_candidates),
+    )
+    for anchor_index, (candidate, observer_config) in enumerate(
+        zip(selected_anchor_candidates, observer_configs),
+        start=1,
+    ):
+        blueprint_id, role_label = observer_config
         anchors.append(
             CustomWalkerAnchor(
                 blueprint_id=blueprint_id,

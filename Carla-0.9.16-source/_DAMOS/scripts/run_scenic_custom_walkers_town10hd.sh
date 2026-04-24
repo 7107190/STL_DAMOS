@@ -24,7 +24,7 @@ MIN_MOVE_METERS=0.5
 OBSERVER_MODE=1
 MAX_OBSERVER_ANCHOR_DISTANCE=22.0
 MAX_OBSERVER_FACING_ERROR_DEGREES=35.0
-OBSERVER_BLUEPRINT="deliverybot"
+OBSERVER_BLUEPRINT="random"
 MAX_ANCHOR_PAIRS=""
 MAX_DELIVERYBOTS=0
 MAX_HUMANOIDS=0
@@ -54,8 +54,8 @@ Options:
                           Max observer-to-anchor distance in meters (default: 22)
   --max-observer-facing-error-degrees N
                           Max observer yaw error toward anchor (default: 35)
-  --observer-blueprint T Observer type per anchor: deliverybot or humanoid
-                          (default: deliverybot)
+  --observer-blueprint T Observer type per anchor: deliverybot, humanoid, or
+                          random (default: random)
   --max-anchor-pairs N    Max semantic anchors to cover; each gets one observer
                           of the chosen type. Default: all candidates
   --max-deliverybots N   Legacy compatibility cap; ignored
