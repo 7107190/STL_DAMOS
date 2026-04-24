@@ -20,7 +20,7 @@ EXPECTED_CAMERA_NAMES = (
     "cam_back_left",
     "cam_back_right",
 )
-EXPECTED_ROLES = {"humanoid", "deliverybot"}
+EXPECTED_OBSERVERS_PER_ANCHOR = 1
 
 
 def add_args(parser: argparse.ArgumentParser) -> None:
@@ -130,11 +130,10 @@ def validate_report(data: dict, args: argparse.Namespace) -> tuple[bool, list[st
     if not anchors:
         failures.append("No anchor assignments were recorded.")
     for anchor_index, assignments in sorted(anchors.items(), key=lambda item: str(item[0])):
-        roles = {assignment.get("observer_role") for assignment in assignments}
-        missing = EXPECTED_ROLES - roles
-        if missing:
+        if len(assignments) != EXPECTED_OBSERVERS_PER_ANCHOR:
             failures.append(
-                f"anchor {anchor_index} is missing observer roles: {', '.join(sorted(missing))}."
+                f"anchor {anchor_index} has {len(assignments)} observers; "
+                f"expected {EXPECTED_OBSERVERS_PER_ANCHOR}."
             )
 
     camera_specs = data.get("observer_camera_specs", [])
@@ -148,7 +147,9 @@ def validate_report(data: dict, args: argparse.Namespace) -> tuple[bool, list[st
 
     cameras_by_track = index_camera_attachments(data.get("observer_camera_attachments", []))
     movements = data.get("walker_movements", {})
+    metrics_by_anchor = defaultdict(list)
     for metric in data.get("observer_metrics", []):
+        metrics_by_anchor[metric.get("anchor_index", "?")].append(metric)
         label = metric.get("track_label", "")
         role = metric.get("observer_role", "<unknown>")
         if metric.get("status") != "ok":
@@ -175,6 +176,12 @@ def validate_report(data: dict, args: argparse.Namespace) -> tuple[bool, list[st
 
     if not data.get("observer_metrics"):
         failures.append("No observer metrics were recorded.")
+    for anchor_index, metrics in sorted(metrics_by_anchor.items(), key=lambda item: str(item[0])):
+        if len(metrics) != EXPECTED_OBSERVERS_PER_ANCHOR:
+            failures.append(
+                f"anchor {anchor_index} has {len(metrics)} observer metrics; "
+                f"expected {EXPECTED_OBSERVERS_PER_ANCHOR}."
+            )
 
     return not failures, failures
 
@@ -209,7 +216,7 @@ def print_summary(report_path: Path, data: dict, args: argparse.Namespace) -> No
                 first.get("anchor_type_id"),
                 first.get("anchor_label"),
                 roles,
-                status_text(EXPECTED_ROLES <= {item.get("observer_role") for item in assignments}),
+                status_text(len(assignments) == EXPECTED_OBSERVERS_PER_ANCHOR),
             )
         )
     print("Anchor coverage")

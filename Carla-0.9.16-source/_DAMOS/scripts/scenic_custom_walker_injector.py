@@ -69,6 +69,7 @@ class ScenicCustomWalkerConfig:
     observer_mode: bool = True
     max_observer_anchor_distance: float = 22.0
     max_observer_facing_error_degrees: float = 35.0
+    observer_blueprint: str = "deliverybot"
     max_anchor_pairs: int | None = None
     max_deliverybots: int = 2
     max_humanoids: int = 2
@@ -166,26 +167,32 @@ def add_integration_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--max-observer-anchor-distance", type=float, default=22.0)
     parser.add_argument("--max-observer-facing-error-degrees", type=float, default=35.0)
     parser.add_argument(
+        "--observer-blueprint",
+        choices=("deliverybot", "humanoid"),
+        default="deliverybot",
+        help="Observer type to place at each Scenic anchor (default: deliverybot).",
+    )
+    parser.add_argument(
         "--max-anchor-pairs",
         type=int,
         default=None,
         help=(
             "Maximum Scenic anchors to cover. Each selected anchor gets one "
-            "humanoid observer and one deliverybot observer. When omitted, all "
-            "semantic anchor candidates are covered."
+            "observer of the chosen type. When omitted, all semantic anchor "
+            "candidates are covered."
         ),
     )
     parser.add_argument(
         "--max-deliverybots",
         type=int,
         default=0,
-        help="Legacy cap kept for compatibility; use --max-anchor-pairs instead.",
+        help="Legacy compatibility flag; ignored by current observer placement.",
     )
     parser.add_argument(
         "--max-humanoids",
         type=int,
         default=0,
-        help="Legacy cap kept for compatibility; use --max-anchor-pairs instead.",
+        help="Legacy compatibility flag; ignored by current observer placement.",
     )
     camera_group = parser.add_mutually_exclusive_group()
     camera_group.add_argument(
@@ -243,6 +250,7 @@ def config_from_args(args: argparse.Namespace) -> ScenicCustomWalkerConfig:
         observer_mode=args.observer_mode,
         max_observer_anchor_distance=args.max_observer_anchor_distance,
         max_observer_facing_error_degrees=args.max_observer_facing_error_degrees,
+        observer_blueprint=args.observer_blueprint,
         max_anchor_pairs=args.max_anchor_pairs,
         max_deliverybots=args.max_deliverybots,
         max_humanoids=args.max_humanoids,
@@ -272,6 +280,8 @@ def validate_config(config: ScenicCustomWalkerConfig) -> ScenicCustomWalkerConfi
         raise ValueError("--max-observer-anchor-distance must be positive.")
     if not 0.0 <= config.max_observer_facing_error_degrees <= 180.0:
         raise ValueError("--max-observer-facing-error-degrees must be between 0 and 180.")
+    if config.observer_blueprint not in {"deliverybot", "humanoid"}:
+        raise ValueError("--observer-blueprint must be either deliverybot or humanoid.")
     return config
 
 
@@ -797,10 +807,17 @@ def select_anchor_for_blueprint(
     return None
 
 
+def observer_blueprint_config(observer_blueprint: str) -> tuple[str, str]:
+    if observer_blueprint == "humanoid":
+        return HUMANOID_ID, "humanoid"
+    return DELIVERYBOT_ID, "deliverybot"
+
+
 def choose_custom_walker_anchors(
     candidates,
     *,
     max_anchor_pairs: int,
+    observer_blueprint: str,
     blocked_actor_ids=(),
 ):
     if not candidates:
@@ -821,33 +838,30 @@ def choose_custom_walker_anchors(
         selected_actor_ids.add(candidate["actor_id"])
 
     for anchor_index, candidate in enumerate(selected_anchor_candidates, start=1):
-        for blueprint_id, role_label in (
-            (HUMANOID_ID, "humanoid"),
-            (DELIVERYBOT_ID, "deliverybot"),
-        ):
-            anchors.append(
-                CustomWalkerAnchor(
-                    blueprint_id=blueprint_id,
-                    track_label=f"{blueprint_id}:anchor{anchor_index}",
-                    actor_id=candidate["actor_id"],
-                    actor_type_id=candidate["type_id"],
-                    label=candidate.get(
-                        "label",
-                        f"scenic.{candidate['category']}:{candidate['actor_id']}",
-                    ),
-                    location=candidate["location"],
-                    anchor_index=anchor_index,
-                    observer_role=role_label,
-                    anchor_kind=candidate.get("anchor_kind", "actor"),
-                    member_actor_ids=tuple(candidate.get("member_actor_ids", ())),
-                    member_actor_snapshots=tuple(
-                        candidate.get("member_actor_snapshots", ())
-                    ),
-                    dynamic_actor_location=bool(
-                        candidate.get("dynamic_actor_location", True)
-                    ),
-                )
+        blueprint_id, role_label = observer_blueprint_config(observer_blueprint)
+        anchors.append(
+            CustomWalkerAnchor(
+                blueprint_id=blueprint_id,
+                track_label=f"{blueprint_id}:anchor{anchor_index}",
+                actor_id=candidate["actor_id"],
+                actor_type_id=candidate["type_id"],
+                label=candidate.get(
+                    "label",
+                    f"scenic.{candidate['category']}:{candidate['actor_id']}",
+                ),
+                location=candidate["location"],
+                anchor_index=anchor_index,
+                observer_role=role_label,
+                anchor_kind=candidate.get("anchor_kind", "actor"),
+                member_actor_ids=tuple(candidate.get("member_actor_ids", ())),
+                member_actor_snapshots=tuple(
+                    candidate.get("member_actor_snapshots", ())
+                ),
+                dynamic_actor_location=bool(
+                    candidate.get("dynamic_actor_location", True)
+                ),
             )
+        )
     return anchors
 
 
@@ -2450,6 +2464,7 @@ def run_scenic_custom_walker_integration(
             anchors = choose_custom_walker_anchors(
                 anchor_candidates,
                 max_anchor_pairs=max_anchor_pairs,
+                observer_blueprint=config.observer_blueprint,
                 blocked_actor_ids=blocked_anchor_actor_ids,
             )
             if not anchors:

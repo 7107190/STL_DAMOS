@@ -24,6 +24,7 @@ MIN_MOVE_METERS=0.5
 OBSERVER_MODE=1
 MAX_OBSERVER_ANCHOR_DISTANCE=22.0
 MAX_OBSERVER_FACING_ERROR_DEGREES=35.0
+OBSERVER_BLUEPRINT="deliverybot"
 MAX_ANCHOR_PAIRS=""
 MAX_DELIVERYBOTS=0
 MAX_HUMANOIDS=0
@@ -53,10 +54,12 @@ Options:
                           Max observer-to-anchor distance in meters (default: 22)
   --max-observer-facing-error-degrees N
                           Max observer yaw error toward anchor (default: 35)
-  --max-anchor-pairs N    Max semantic anchors to cover; each gets one humanoid
-                          and one deliverybot observer. Default: all candidates
-  --max-deliverybots N   Legacy compatibility cap; prefer --max-anchor-pairs
-  --max-humanoids N      Legacy compatibility cap; prefer --max-anchor-pairs
+  --observer-blueprint T Observer type per anchor: deliverybot or humanoid
+                          (default: deliverybot)
+  --max-anchor-pairs N    Max semantic anchors to cover; each gets one observer
+                          of the chosen type. Default: all candidates
+  --max-deliverybots N   Legacy compatibility cap; ignored
+  --max-humanoids N      Legacy compatibility cap; ignored
   --attach-observer-cameras
                           Attach six RGB cameras to each observer (default)
   --no-observer-cameras  Disable observer camera sensor attachment
@@ -212,6 +215,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --max-observer-facing-error-degrees)
       MAX_OBSERVER_FACING_ERROR_DEGREES="$2"
+      shift 2
+      ;;
+    --observer-blueprint)
+      OBSERVER_BLUEPRINT="$2"
       shift 2
       ;;
     --max-anchor-pairs)
@@ -410,6 +417,7 @@ set +e
   --min-move-meters "$MIN_MOVE_METERS" \
   --max-observer-anchor-distance "$MAX_OBSERVER_ANCHOR_DISTANCE" \
   --max-observer-facing-error-degrees "$MAX_OBSERVER_FACING_ERROR_DEGREES" \
+  --observer-blueprint "$OBSERVER_BLUEPRINT" \
   "${anchor_pair_args[@]}" \
   --max-deliverybots "$MAX_DELIVERYBOTS" \
   --max-humanoids "$MAX_HUMANOIDS" \
