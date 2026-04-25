@@ -1600,6 +1600,42 @@ def xy_points_intersect_bounds(points, bounds):
     return any(xy_in_bounds(x, y, bounds) for x, y in points)
 
 
+def xy_bounds_for_points(points):
+    xs = [float(x) for x, _y in points]
+    ys = [float(y) for _x, y in points]
+    return (min(xs), max(xs), min(ys), max(ys))
+
+
+def point_in_polygon(point, polygon):
+    x, y = point
+    inside = False
+    previous_x, previous_y = polygon[-1]
+    for current_x, current_y in polygon:
+        crosses_y = (current_y > y) != (previous_y > y)
+        if crosses_y:
+            slope_x = (
+                (previous_x - current_x)
+                * (y - current_y)
+                / ((previous_y - current_y) or 1e-9)
+                + current_x
+            )
+            if x < slope_x:
+                inside = not inside
+        previous_x, previous_y = current_x, current_y
+    return inside
+
+
+def polygon_contains_any_point(polygon, points):
+    if not polygon or not points:
+        return False
+    min_x, max_x, min_y, max_y = xy_bounds_for_points(polygon)
+    for point in points:
+        x, y = point
+        if min_x <= x <= max_x and min_y <= y <= max_y and point_in_polygon(point, polygon):
+            return True
+    return False
+
+
 def waypoint_xy(waypoint):
     location = waypoint.transform.location
     return float(location.x), float(location.y)
@@ -1704,6 +1740,26 @@ def draw_carla_lane_context(ax, carla_map, *, bounds=None):
     return visible_segments
 
 
+def driving_waypoint_points(carla_map, *, bounds=None, sampling_resolution=2.0):
+    try:
+        waypoints = carla_map.generate_waypoints(sampling_resolution)
+    except RuntimeError:
+        return []
+
+    draw_bounds = expand_xy_bounds(bounds, 24.0)
+    points = []
+    for waypoint in waypoints:
+        try:
+            if waypoint.lane_type != carla.LaneType.Driving:
+                continue
+            point = waypoint_xy(waypoint)
+        except RuntimeError:
+            continue
+        if xy_in_bounds(point[0], point[1], draw_bounds):
+            points.append(point)
+    return points
+
+
 def unique_xy_points(points):
     seen = set()
     unique = []
@@ -1722,7 +1778,14 @@ def sorted_polygon_points(points):
     return sorted(points, key=lambda point: math.atan2(point[1] - center_y, point[0] - center_x))
 
 
-def draw_carla_building_context(ax, world, *, bounds=None, max_buildings=1800):
+def draw_carla_building_context(
+    ax,
+    world,
+    *,
+    bounds=None,
+    driving_points=(),
+    max_buildings=1800,
+):
     try:
         objects = world.get_environment_objects(carla.CityObjectLabel.Buildings)
     except (AttributeError, RuntimeError):
@@ -1734,8 +1797,10 @@ def draw_carla_building_context(ax, world, *, bounds=None, max_buildings=1800):
     drawn = 0
     for environment_object in objects:
         try:
+            # EnvironmentObject.bounding_box is already reported in world space.
+            # Applying environment_object.transform again shifts the geometry.
             vertices = environment_object.bounding_box.get_world_vertices(
-                environment_object.transform
+                carla.Transform()
             )
         except RuntimeError:
             continue
@@ -1744,8 +1809,14 @@ def draw_carla_building_context(ax, world, *, bounds=None, max_buildings=1800):
             continue
         if not xy_points_intersect_bounds(points, draw_bounds):
             continue
+        polygon_points = sorted_polygon_points(points)
+        # CARLA building EnvironmentObjects can be coarse mesh bounding boxes.
+        # If a box covers a driving waypoint, it is not a reliable building
+        # footprint for our 2D validation plot.
+        if polygon_contains_any_point(polygon_points, driving_points):
+            continue
         polygon = Polygon(
-            sorted_polygon_points(points),
+            polygon_points,
             closed=True,
             facecolor="#dedbd2",
             edgecolor="#b9b3a9",
@@ -1767,7 +1838,13 @@ def draw_carla_map_context(ax, world, *, bounds=None):
     except RuntimeError:
         return {"lane_segments": 0, "buildings": 0}
 
-    buildings = draw_carla_building_context(ax, world, bounds=bounds)
+    driving_points = driving_waypoint_points(carla_map, bounds=bounds)
+    buildings = draw_carla_building_context(
+        ax,
+        world,
+        bounds=bounds,
+        driving_points=driving_points,
+    )
     lane_segments = draw_carla_lane_context(ax, carla_map, bounds=bounds)
     return {"lane_segments": lane_segments, "buildings": buildings}
 
