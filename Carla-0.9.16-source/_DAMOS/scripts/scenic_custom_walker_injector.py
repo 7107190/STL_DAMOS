@@ -1760,6 +1760,25 @@ def driving_waypoint_points(carla_map, *, bounds=None, sampling_resolution=2.0):
     return points
 
 
+def compute_carla_map_bounds(world, *, margin=10.0):
+    try:
+        carla_map = world.get_map()
+    except RuntimeError:
+        return None
+    points = driving_waypoint_points(carla_map)
+    if not points:
+        return None
+    return expand_xy_bounds(xy_bounds_for_points(points), margin)
+
+
+def apply_xy_bounds(ax, bounds):
+    if bounds is None:
+        return
+    min_x, max_x, min_y, max_y = bounds
+    ax.set_xlim(min_x, max_x)
+    ax.set_ylim(min_y, max_y)
+
+
 def unique_xy_points(points):
     seen = set()
     unique = []
@@ -1929,9 +1948,10 @@ def save_trajectory_report(
     import matplotlib.pyplot as plt
 
     ego_route_planner = build_ego_route_planner(world)
+    map_bounds = compute_carla_map_bounds(world)
 
     fig, ax = plt.subplots(figsize=(12, 10))
-    draw_carla_map_context(ax, world)
+    draw_carla_map_context(ax, world, bounds=map_bounds)
 
     drawn_anchor_indices = set()
     drew_anchor_members = False
@@ -2079,6 +2099,7 @@ def save_trajectory_report(
     ax.set_xlabel("x (m)")
     ax.set_ylabel("y (m)")
     ax.set_aspect("equal", adjustable="box")
+    apply_xy_bounds(ax, map_bounds)
     ax.legend(loc="best")
     ax.grid(alpha=0.2)
     fig.tight_layout()
@@ -2087,9 +2108,10 @@ def save_trajectory_report(
 
     focus_track_keys = collect_focus_track_keys(trajectory_samples, anchor_assignments)
     focus_bounds = compute_focus_bounds(trajectory_samples, anchor_assignments, focus_track_keys)
+    focus_plot_bounds = map_bounds or focus_bounds
 
     focus_fig, focus_ax = plt.subplots(figsize=(12, 10))
-    draw_carla_map_context(focus_ax, world, bounds=focus_bounds)
+    draw_carla_map_context(focus_ax, world, bounds=focus_plot_bounds)
 
     focus_colors = {
         "ego": "#1f77b4",
@@ -2259,12 +2281,9 @@ def save_trajectory_report(
             focus_legend_drawn.add(legend_key)
         focus_ax.scatter(xs[-1], ys[-1], color=color, s=56, marker="X", zorder=6)
 
-    if focus_bounds is not None:
-        min_x, max_x, min_y, max_y = focus_bounds
-        focus_ax.set_xlim(min_x, max_x)
-        focus_ax.set_ylim(min_y, max_y)
+    apply_xy_bounds(focus_ax, focus_plot_bounds)
 
-    focus_ax.set_title(f"{map_name} Focus View: ego + anchors + custom walkers{title_suffix}")
+    focus_ax.set_title(f"{map_name} Full Map View: ego + anchors + custom walkers{title_suffix}")
     focus_ax.set_xlabel("x (m)")
     focus_ax.set_ylabel("y (m)")
     focus_ax.set_aspect("equal", adjustable="box")
