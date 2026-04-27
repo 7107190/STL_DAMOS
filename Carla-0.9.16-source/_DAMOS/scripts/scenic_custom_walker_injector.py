@@ -22,6 +22,7 @@ from custom_walker_runtime import (
     CustomWalkerAnchor,
     DELIVERYBOT_ID,
     HUMANOID_ID,
+    anchor_member_locations,
     attach_observer_cameras,
     connect_to_world,
     distance_between,
@@ -1187,6 +1188,34 @@ def build_observer_zoom_camera_transform(observer_location, anchor_location):
     )
 
 
+def build_observer_topdown_camera_transform(observer_location, anchor_location, member_locations=()):
+    points = [observer_location, anchor_location, *member_locations]
+    xs = [float(point.x) for point in points]
+    ys = [float(point.y) for point in points]
+    zs = [float(point.z) for point in points]
+    center_x = (min(xs) + max(xs)) * 0.5
+    center_y = (min(ys) + max(ys)) * 0.5
+    span_x = max(xs) - min(xs)
+    span_y = max(ys) - min(ys)
+    observer_anchor_span = max(
+        1.0,
+        math.sqrt(
+            (float(observer_location.x) - float(anchor_location.x)) ** 2
+            + (float(observer_location.y) - float(anchor_location.y)) ** 2
+        ),
+    )
+    span = max(span_x, span_y, observer_anchor_span)
+    height = min(120.0, max(35.0, span * 1.45))
+    return carla.Transform(
+        carla.Location(
+            x=center_x,
+            y=center_y,
+            z=max(zs) + height,
+        ),
+        carla.Rotation(pitch=-90.0, yaw=0.0, roll=0.0),
+    )
+
+
 def configure_rgb_camera_blueprint(world, *, width, height, fov=80):
     blueprint = world.get_blueprint_library().find("sensor.camera.rgb")
     if blueprint.has_attribute("image_size_x"):
@@ -1225,8 +1254,8 @@ def draw_observer_capture_markers(world, observer_location, anchor_location, *, 
         world.debug.draw_line(
             observer_marker,
             anchor_marker,
-            thickness=0.08,
-            color=carla.Color(0, 220, 0),
+            thickness=0.12,
+            color=carla.Color(0, 0, 0),
             life_time=8.0,
         )
         world.debug.draw_string(
@@ -1499,6 +1528,48 @@ def save_observer_scene_captures(
             anchor_location,
             role=role,
         )
+        topdown_debug_path = capture_dir / f"{prefix}_topdown_debug.png"
+        topdown_debug_transform = build_observer_topdown_camera_transform(
+            observer_location,
+            anchor_location,
+            anchor_member_locations(spawned_walker.anchor),
+        )
+        topdown_debug_bp = configure_rgb_camera_blueprint(
+            world,
+            width=config.capture_image_width,
+            height=config.capture_image_height,
+            fov=80,
+        )
+        topdown_debug_sensor = world.spawn_actor(
+            topdown_debug_bp,
+            topdown_debug_transform,
+        )
+        try:
+            topdown_debug_ok = capture_rgb_sensor_frame(
+                world,
+                topdown_debug_sensor,
+                topdown_debug_path,
+                timeout_seconds=config.capture_timeout_seconds,
+            )
+        finally:
+            try:
+                topdown_debug_sensor.destroy()
+            except RuntimeError:
+                pass
+        captures.append(
+            {
+                "capture_type": "external_scene_topdown_debug",
+                "track_label": spawned_walker.track_label,
+                "observer_role": role,
+                "anchor_index": anchor_index,
+                "anchor_label": spawned_walker.anchor.label,
+                "path": str(topdown_debug_path),
+                "status": "saved" if topdown_debug_ok else "timeout",
+                "facing_error_degrees": round(float(facing_error), 3),
+                "camera_transform": serialize_transform(topdown_debug_transform),
+            }
+        )
+
         scene_debug_path = capture_dir / f"{prefix}_scene_debug.png"
         scene_debug_transform = build_observer_scene_camera_transform(
             observer_location,
