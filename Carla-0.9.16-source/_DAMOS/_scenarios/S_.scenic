@@ -247,7 +247,7 @@ scenario S6(instance_index=1): # 도로 공사로 인한 차선 감소
         with regionContainedIn None
 
     print(f"S6#{instance_index}: 도로공사로 인한 차선 좁아짐")
-    terminate after 1 seconds
+    terminate after 3000 seconds
 
 scenario S7(instance_index=1): # 인도 공사로 인한 통행 불가
   setup:
@@ -302,7 +302,7 @@ scenario S7(instance_index=1): # 인도 공사로 인한 통행 불가
         with regionContainedIn None
 
     print(f"S7#{instance_index}: 인도 공사로 통행불가")
-    terminate after 1 seconds
+    terminate after 3000 seconds
 
 scenario S8(instance_index=1): # 인도 내 군중
   setup:

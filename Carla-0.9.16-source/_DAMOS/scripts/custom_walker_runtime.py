@@ -25,6 +25,22 @@ SENSOR_CONFIG_LINE_PATTERN = re.compile(
     r"^sensor : (?P<name>[^,]+) ,bp : ActorBlueprint\(id=(?P<blueprint_id>[^,]+),"
     r".* transform : (?P<transform>\{.*\})$"
 )
+WIDE_REGION_ANCHOR_KINDS = {
+    "vehicle_region",
+    "construction_region",
+}
+DEFAULT_OBSERVER_RADIUS_PROFILE = {
+    "preferred_radius": 7.0,
+    "min_radius": 3.0,
+    "max_radius": 22.0,
+    "navigation_max_radius": 18.0,
+}
+WIDE_REGION_OBSERVER_RADIUS_PROFILE = {
+    "preferred_radius": 18.0,
+    "min_radius": 12.0,
+    "max_radius": 22.0,
+    "navigation_max_radius": 22.0,
+}
 
 
 @dataclass(frozen=True)
@@ -499,6 +515,31 @@ def direct_observer_locations_near_anchor(
             yield location
 
 
+def observer_radius_profile_for_anchor(anchor):
+    if getattr(anchor, "anchor_kind", "actor") in WIDE_REGION_ANCHOR_KINDS:
+        return WIDE_REGION_OBSERVER_RADIUS_PROFILE
+    return DEFAULT_OBSERVER_RADIUS_PROFILE
+
+
+def anchor_member_locations(anchor):
+    locations = []
+    for snapshot in getattr(anchor, "member_actor_snapshots", ()) or ():
+        location = snapshot.get("location") if isinstance(snapshot, dict) else None
+        if not isinstance(location, dict):
+            continue
+        try:
+            locations.append(
+                carla.Location(
+                    x=float(location["x"]),
+                    y=float(location["y"]),
+                    z=float(location.get("z", 0.0)),
+                )
+            )
+        except (KeyError, TypeError, ValueError):
+            continue
+    return locations
+
+
 def require_town01(world):
     map_name = world.get_map().name
     if map_name.endswith(f"/{TOWN01_NAME}") or map_name == TOWN01_NAME:
@@ -743,13 +784,15 @@ def spawn_custom_walkers_near_anchors(
     for anchor in anchors:
         blueprint_id = anchor.blueprint_id
         spawned_walker = None
+        radius_profile = observer_radius_profile_for_anchor(anchor)
+        blocked_locations = [*used_locations, *anchor_member_locations(anchor)]
         sidewalk_locations = sidewalk_spawn_locations_near_anchor(
             world,
             anchor.location,
-            preferred_radius=7.0,
-            min_radius=3.0,
-            max_radius=22.0,
-            avoid_locations=used_locations,
+            preferred_radius=radius_profile["preferred_radius"],
+            min_radius=radius_profile["min_radius"],
+            max_radius=radius_profile["max_radius"],
+            avoid_locations=blocked_locations,
             avoid_radius=3.0,
         )
         navigation_locations = []
@@ -757,11 +800,11 @@ def spawn_custom_walkers_near_anchors(
             navigation_location = pick_navigation_location_near_anchor(
                 world,
                 anchor.location,
-                preferred_radius=7.0,
-                min_radius=3.0,
-                max_radius=18.0,
+                preferred_radius=radius_profile["preferred_radius"],
+                min_radius=radius_profile["min_radius"],
+                max_radius=radius_profile["navigation_max_radius"],
                 sample_count=400,
-                avoid_locations=[*used_locations, *navigation_locations],
+                avoid_locations=[*blocked_locations, *navigation_locations],
                 avoid_radius=3.0,
                 require_sidewalk=True,
                 sidewalk_project_distance=2.0,
@@ -797,7 +840,11 @@ def spawn_custom_walkers_near_anchors(
                 actual_location,
                 max_project_distance=2.0,
             )
-            if spawn_error <= 5.0 and anchor_error <= 22.0 and sidewalk_ok:
+            if (
+                spawn_error <= 5.0
+                and anchor_error <= radius_profile["max_radius"]
+                and sidewalk_ok
+            ):
                 spawned_walker = candidate
                 used_locations.append(actual_location)
                 break
