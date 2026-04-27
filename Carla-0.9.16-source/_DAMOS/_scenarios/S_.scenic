@@ -196,7 +196,7 @@ scenario S5(instance_index=1): # 인도 위 장애물
         with regionContainedIn None
 
     print(f"S5#{instance_index}: 인도위 불법 주차")
-    terminate after 1 seconds
+    terminate after 3000 seconds
 
 scenario S6(instance_index=1): # 도로 공사로 인한 차선 감소
   setup:

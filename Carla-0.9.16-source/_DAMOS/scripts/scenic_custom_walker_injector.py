@@ -1349,6 +1349,42 @@ def save_observer_scene_captures(
         anchor_index = spawned_walker.anchor.anchor_index or len(captures) + 1
         prefix = f"anchor{anchor_index}_{sanitize_filename_fragment(role)}"
 
+        context_path = capture_dir / f"{prefix}_scene_context.png"
+        context_transform = build_observer_scene_camera_transform(
+            observer_location,
+            anchor_location,
+        )
+        context_sensor = world.spawn_actor(scene_camera_bp, context_transform)
+        try:
+            context_ok = capture_rgb_sensor_frame(
+                world,
+                context_sensor,
+                context_path,
+                timeout_seconds=config.capture_timeout_seconds,
+            )
+        finally:
+            try:
+                context_sensor.destroy()
+            except RuntimeError:
+                pass
+        captures.append(
+            {
+                "capture_type": "external_scene_context",
+                "track_label": spawned_walker.track_label,
+                "observer_role": role,
+                "anchor_index": anchor_index,
+                "anchor_label": spawned_walker.anchor.label,
+                "path": str(context_path),
+                "status": "saved" if context_ok else "timeout",
+                "observer_location": serialize_location(observer_location),
+                "anchor_location": serialize_location(anchor_location),
+                "observer_yaw_degrees": round(float(observer_transform.rotation.yaw), 3),
+                "target_yaw_degrees": round(float(target_yaw), 3),
+                "facing_error_degrees": round(float(facing_error), 3),
+                "camera_transform": serialize_transform(context_transform),
+            }
+        )
+
         close_path = capture_dir / f"{prefix}_scene_close.png"
         close_transform = build_observer_close_camera_transform(
             observer_location,
