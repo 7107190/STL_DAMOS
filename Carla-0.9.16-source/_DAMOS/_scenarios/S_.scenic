@@ -154,7 +154,7 @@ scenario S4(instance_index=1):  # 도로위 장애물
       for sp in spots
     ]
     print(f"S4#{instance_index}: 도로위 정차 차량 장애물 {len(obstacles)}")
-    terminate after 1 seconds
+    terminate after 3000 seconds
 
 scenario S5(instance_index=1): # 인도 위 장애물
   setup:

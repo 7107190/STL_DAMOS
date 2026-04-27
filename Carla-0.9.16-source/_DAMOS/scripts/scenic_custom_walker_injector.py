@@ -1140,6 +1140,53 @@ def build_observer_scene_camera_transform(observer_location, anchor_location):
     )
 
 
+def build_observer_close_camera_transform(observer_location, anchor_location):
+    dx = float(anchor_location.x) - float(observer_location.x)
+    dy = float(anchor_location.y) - float(observer_location.y)
+    distance = math.sqrt(dx * dx + dy * dy)
+    if distance < 1e-3:
+        ux, uy = 1.0, 0.0
+    else:
+        ux, uy = dx / distance, dy / distance
+    px, py = -uy, ux
+    side = min(16.0, max(9.0, distance * 0.95))
+    height = min(7.0, max(3.8, 2.8 + distance * 0.22))
+    z_base = max(float(observer_location.z), float(anchor_location.z))
+    midpoint_x = (float(observer_location.x) + float(anchor_location.x)) * 0.5
+    midpoint_y = (float(observer_location.y) + float(anchor_location.y)) * 0.5
+    camera_location = carla.Location(
+        x=midpoint_x + px * side,
+        y=midpoint_y + py * side,
+        z=z_base + height,
+    )
+    target_location = carla.Location(
+        x=midpoint_x,
+        y=midpoint_y,
+        z=z_base + 1.0,
+    )
+    return carla.Transform(
+        camera_location,
+        rotation_toward_location(camera_location, target_location),
+    )
+
+
+def build_observer_zoom_camera_transform(observer_location, anchor_location):
+    camera_location = carla.Location(
+        x=float(observer_location.x),
+        y=float(observer_location.y),
+        z=float(observer_location.z) + 1.5,
+    )
+    target_location = carla.Location(
+        x=float(anchor_location.x),
+        y=float(anchor_location.y),
+        z=float(anchor_location.z) + 1.0,
+    )
+    return carla.Transform(
+        camera_location,
+        rotation_toward_location(camera_location, target_location),
+    )
+
+
 def configure_rgb_camera_blueprint(world, *, width, height, fov=80):
     blueprint = world.get_blueprint_library().find("sensor.camera.rgb")
     if blueprint.has_attribute("image_size_x"):
@@ -1277,6 +1324,18 @@ def save_observer_scene_captures(
         height=config.capture_image_height,
         fov=82,
     )
+    close_camera_bp = configure_rgb_camera_blueprint(
+        world,
+        width=config.capture_image_width,
+        height=config.capture_image_height,
+        fov=62,
+    )
+    zoom_camera_bp = configure_rgb_camera_blueprint(
+        world,
+        width=config.capture_image_width,
+        height=config.capture_image_height,
+        fov=42,
+    )
 
     for spawned_walker in spawned_walkers:
         observer_location = try_get_actor_location(spawned_walker.walker)
@@ -1289,46 +1348,72 @@ def save_observer_scene_captures(
         role = spawned_walker.anchor.observer_role or spawned_walker.spec.blueprint_id
         anchor_index = spawned_walker.anchor.anchor_index or len(captures) + 1
         prefix = f"anchor{anchor_index}_{sanitize_filename_fragment(role)}"
-        draw_observer_capture_markers(
-            world,
-            observer_location,
-            anchor_location,
-            role=role,
-        )
 
-        scene_path = capture_dir / f"{prefix}_scene.png"
-        scene_transform = build_observer_scene_camera_transform(
+        close_path = capture_dir / f"{prefix}_scene_close.png"
+        close_transform = build_observer_close_camera_transform(
             observer_location,
             anchor_location,
         )
-        scene_sensor = world.spawn_actor(scene_camera_bp, scene_transform)
+        close_sensor = world.spawn_actor(close_camera_bp, close_transform)
         try:
-            scene_ok = capture_rgb_sensor_frame(
+            close_ok = capture_rgb_sensor_frame(
                 world,
-                scene_sensor,
-                scene_path,
+                close_sensor,
+                close_path,
                 timeout_seconds=config.capture_timeout_seconds,
             )
         finally:
             try:
-                scene_sensor.destroy()
+                close_sensor.destroy()
             except RuntimeError:
                 pass
         captures.append(
             {
-                "capture_type": "external_scene",
+                "capture_type": "external_scene_close",
                 "track_label": spawned_walker.track_label,
                 "observer_role": role,
                 "anchor_index": anchor_index,
                 "anchor_label": spawned_walker.anchor.label,
-                "path": str(scene_path),
-                "status": "saved" if scene_ok else "timeout",
+                "path": str(close_path),
+                "status": "saved" if close_ok else "timeout",
                 "observer_location": serialize_location(observer_location),
                 "anchor_location": serialize_location(anchor_location),
                 "observer_yaw_degrees": round(float(observer_transform.rotation.yaw), 3),
                 "target_yaw_degrees": round(float(target_yaw), 3),
                 "facing_error_degrees": round(float(facing_error), 3),
-                "camera_transform": serialize_transform(scene_transform),
+                "camera_transform": serialize_transform(close_transform),
+            }
+        )
+
+        zoom_path = capture_dir / f"{prefix}_observer_zoom.png"
+        zoom_transform = build_observer_zoom_camera_transform(
+            observer_location,
+            anchor_location,
+        )
+        zoom_sensor = world.spawn_actor(zoom_camera_bp, zoom_transform)
+        try:
+            zoom_ok = capture_rgb_sensor_frame(
+                world,
+                zoom_sensor,
+                zoom_path,
+                timeout_seconds=config.capture_timeout_seconds,
+            )
+        finally:
+            try:
+                zoom_sensor.destroy()
+            except RuntimeError:
+                pass
+        captures.append(
+            {
+                "capture_type": "observer_zoom_to_anchor",
+                "track_label": spawned_walker.track_label,
+                "observer_role": role,
+                "anchor_index": anchor_index,
+                "anchor_label": spawned_walker.anchor.label,
+                "path": str(zoom_path),
+                "status": "saved" if zoom_ok else "timeout",
+                "facing_error_degrees": round(float(facing_error), 3),
+                "camera_transform": serialize_transform(zoom_transform),
             }
         )
 
@@ -1369,6 +1454,44 @@ def save_observer_scene_captures(
                 "path": str(front_path),
                 "status": "saved" if front_ok else "timeout",
                 "facing_error_degrees": round(float(facing_error), 3),
+            }
+        )
+
+        draw_observer_capture_markers(
+            world,
+            observer_location,
+            anchor_location,
+            role=role,
+        )
+        scene_debug_path = capture_dir / f"{prefix}_scene_debug.png"
+        scene_debug_transform = build_observer_scene_camera_transform(
+            observer_location,
+            anchor_location,
+        )
+        scene_debug_sensor = world.spawn_actor(scene_camera_bp, scene_debug_transform)
+        try:
+            scene_debug_ok = capture_rgb_sensor_frame(
+                world,
+                scene_debug_sensor,
+                scene_debug_path,
+                timeout_seconds=config.capture_timeout_seconds,
+            )
+        finally:
+            try:
+                scene_debug_sensor.destroy()
+            except RuntimeError:
+                pass
+        captures.append(
+            {
+                "capture_type": "external_scene_debug",
+                "track_label": spawned_walker.track_label,
+                "observer_role": role,
+                "anchor_index": anchor_index,
+                "anchor_label": spawned_walker.anchor.label,
+                "path": str(scene_debug_path),
+                "status": "saved" if scene_debug_ok else "timeout",
+                "facing_error_degrees": round(float(facing_error), 3),
+                "camera_transform": serialize_transform(scene_debug_transform),
             }
         )
 
