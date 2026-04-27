@@ -141,12 +141,19 @@ scenario S4(instance_index=1):  # 도로위 장애물
     spots = [ new OrientedPoint on (Uniform(*network.lanes)).centerline
               for _ in range(N_OBSTACLES) ]
     obstacles = [
-      new Garbage at sp.position,
+      new Car at sp.position,
+          with blueprint Uniform(
+            "vehicle.jeep.wrangler_rubicon",
+            "vehicle.nissan.patrol",
+            "vehicle.tesla.model3",
+            "vehicle.toyota.prius"
+          ),
           with heading sp.heading,
-          with rolename SCENARIO_ROLE
+          with rolename SCENARIO_ROLE,
+          with regionContainedIn None
       for sp in spots
     ]
-    print(f"S4#{instance_index}: 도로위 장애물 {len(obstacles)}")
+    print(f"S4#{instance_index}: 도로위 정차 차량 장애물 {len(obstacles)}")
     terminate after 1 seconds
 
 scenario S5(instance_index=1): # 인도 위 장애물

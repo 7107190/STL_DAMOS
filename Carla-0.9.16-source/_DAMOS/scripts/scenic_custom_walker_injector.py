@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import queue
 from dataclasses import dataclass
 import json
 import math
@@ -32,6 +33,7 @@ from custom_walker_runtime import (
     measure_walker_movements,
     probe_anchor_spawned_walkers,
     send_walkers_to_anchor_destinations,
+    serialize_transform,
     serialize_observer_camera_specs,
     snapshot_walker_locations,
     spawn_custom_walkers_near_anchors,
@@ -82,6 +84,10 @@ class ScenicCustomWalkerConfig:
     report_dir: pathlib.Path = DEFAULT_REPORT_DIR
     sample_interval_seconds: float = 0.5
     save_trajectory_report: bool = True
+    save_observer_scene_captures: bool = False
+    capture_image_width: int = 1280
+    capture_image_height: int = 720
+    capture_timeout_seconds: float = 6.0
 
 
 @dataclass(frozen=True)
@@ -96,6 +102,7 @@ class ScenicCustomWalkerResult:
     observer_metrics: tuple[dict[str, object], ...]
     observer_camera_specs: tuple[dict[str, object], ...]
     observer_camera_attachments: tuple[dict[str, object], ...]
+    observer_scene_captures: tuple[dict[str, object], ...]
     scenic_returncode: int | None
     scenic_output_tail: tuple[str, ...]
     trajectory_report_png: str | None
@@ -230,6 +237,17 @@ def add_integration_args(parser: argparse.ArgumentParser) -> None:
         help="Do not save trajectory PNG/JSON artifacts for Scenic integration runs.",
     )
     parser.add_argument(
+        "--save-observer-scene-captures",
+        action="store_true",
+        help=(
+            "Save RGB captures for each observer-anchor pair: an external scene "
+            "view and the observer cam_front view."
+        ),
+    )
+    parser.add_argument("--capture-image-width", type=int, default=1280)
+    parser.add_argument("--capture-image-height", type=int, default=720)
+    parser.add_argument("--capture-timeout-seconds", type=float, default=6.0)
+    parser.add_argument(
         "--keep-existing-custom-walkers",
         action="store_true",
         help="Do not clean up existing custom walkers before spawning new ones.",
@@ -266,6 +284,10 @@ def config_from_args(args: argparse.Namespace) -> ScenicCustomWalkerConfig:
         report_dir=pathlib.Path(args.report_dir),
         sample_interval_seconds=args.sample_interval_seconds,
         save_trajectory_report=not args.no_trajectory_report,
+        save_observer_scene_captures=args.save_observer_scene_captures,
+        capture_image_width=args.capture_image_width,
+        capture_image_height=args.capture_image_height,
+        capture_timeout_seconds=args.capture_timeout_seconds,
     )
 
 
@@ -282,6 +304,10 @@ def validate_config(config: ScenicCustomWalkerConfig) -> ScenicCustomWalkerConfi
         raise ValueError("--max-humanoids must be zero or positive.")
     if config.max_observer_anchor_distance <= 0.0:
         raise ValueError("--max-observer-anchor-distance must be positive.")
+    if config.capture_image_width <= 0 or config.capture_image_height <= 0:
+        raise ValueError("--capture-image-width/height must be positive.")
+    if config.capture_timeout_seconds <= 0.0:
+        raise ValueError("--capture-timeout-seconds must be positive.")
     if not 0.0 <= config.max_observer_facing_error_degrees <= 180.0:
         raise ValueError("--max-observer-facing-error-degrees must be between 0 and 180.")
     if config.observer_blueprint not in {"deliverybot", "humanoid", "random"}:
@@ -583,7 +609,6 @@ def semantic_anchor_candidates(candidates, *, selected_scenario: str | None = No
                         group,
                         label_prefix=f"scenic.random_scenario:{scenario_instance}.road_obstacle",
                         kind="scenario_s4_road_obstacle",
-                        category="prop",
                     )
                 )
                 continue
@@ -628,14 +653,15 @@ def semantic_anchor_candidates(candidates, *, selected_scenario: str | None = No
 
     if selected_scenario == "S4":
         road_obstacles = [
-            candidate for candidate in candidates if candidate["category"] == "prop"
+            candidate
+            for candidate in candidates
+            if candidate["category"] in {"prop", "vehicle"}
         ]
         if road_obstacles:
             return make_individual_anchor_candidates(
                 road_obstacles,
                 label_prefix="scenic.road_obstacle",
                 kind="road_obstacle",
-                category="prop",
             )
 
     if len(pedestrians) > 3:
@@ -719,7 +745,11 @@ def filter_candidates_for_selected_scenario(candidates, selected_scenario):
     if selected_scenario == "S2":
         return [candidate for candidate in candidates if candidate["category"] == "bicycle"]
     if selected_scenario == "S4":
-        return [candidate for candidate in candidates if candidate["category"] == "prop"]
+        return [
+            candidate
+            for candidate in candidates
+            if candidate["category"] in {"prop", "vehicle"}
+        ]
     if selected_scenario == "S5":
         return [candidate for candidate in candidates if candidate["category"] == "vehicle"]
     if selected_scenario in {"S6", "S7", "S9"}:
@@ -1065,6 +1095,284 @@ def find_observer_metric_failures(
         if facing_error > max_facing_error_degrees:
             failures.append((track_label, f"facing_error={facing_error:.2f}deg"))
     return failures
+
+
+def rotation_toward_location(camera_location, target_location):
+    dx = float(target_location.x) - float(camera_location.x)
+    dy = float(target_location.y) - float(camera_location.y)
+    dz = float(target_location.z) - float(camera_location.z)
+    horizontal = math.sqrt(dx * dx + dy * dy)
+    return carla.Rotation(
+        pitch=math.degrees(math.atan2(dz, horizontal)),
+        yaw=math.degrees(math.atan2(dy, dx)),
+        roll=0.0,
+    )
+
+
+def build_observer_scene_camera_transform(observer_location, anchor_location):
+    dx = float(anchor_location.x) - float(observer_location.x)
+    dy = float(anchor_location.y) - float(observer_location.y)
+    distance = math.sqrt(dx * dx + dy * dy)
+    if distance < 1e-3:
+        ux, uy = 1.0, 0.0
+    else:
+        ux, uy = dx / distance, dy / distance
+    px, py = -uy, ux
+    back = min(6.0, max(2.0, distance * 0.25))
+    side = min(18.0, max(8.0, distance * 1.05))
+    height = min(10.0, max(5.5, 3.0 + distance * 0.35))
+    z_base = max(float(observer_location.z), float(anchor_location.z))
+    midpoint_x = (float(observer_location.x) + float(anchor_location.x)) * 0.5
+    midpoint_y = (float(observer_location.y) + float(anchor_location.y)) * 0.5
+    camera_location = carla.Location(
+        x=midpoint_x - ux * back + px * side,
+        y=midpoint_y - uy * back + py * side,
+        z=z_base + height,
+    )
+    target_location = carla.Location(
+        x=midpoint_x,
+        y=midpoint_y,
+        z=z_base + 1.0,
+    )
+    return carla.Transform(
+        camera_location,
+        rotation_toward_location(camera_location, target_location),
+    )
+
+
+def configure_rgb_camera_blueprint(world, *, width, height, fov=80):
+    blueprint = world.get_blueprint_library().find("sensor.camera.rgb")
+    if blueprint.has_attribute("image_size_x"):
+        blueprint.set_attribute("image_size_x", str(int(width)))
+    if blueprint.has_attribute("image_size_y"):
+        blueprint.set_attribute("image_size_y", str(int(height)))
+    if blueprint.has_attribute("fov"):
+        blueprint.set_attribute("fov", str(int(fov)))
+    return blueprint
+
+
+def draw_observer_capture_markers(world, observer_location, anchor_location, *, role):
+    observer_marker = carla.Location(
+        x=float(observer_location.x),
+        y=float(observer_location.y),
+        z=float(observer_location.z) + 1.2,
+    )
+    anchor_marker = carla.Location(
+        x=float(anchor_location.x),
+        y=float(anchor_location.y),
+        z=float(anchor_location.z) + 1.2,
+    )
+    try:
+        world.debug.draw_point(
+            observer_marker,
+            size=0.28,
+            color=carla.Color(0, 220, 0),
+            life_time=8.0,
+        )
+        world.debug.draw_point(
+            anchor_marker,
+            size=0.28,
+            color=carla.Color(255, 0, 0),
+            life_time=8.0,
+        )
+        world.debug.draw_line(
+            observer_marker,
+            anchor_marker,
+            thickness=0.08,
+            color=carla.Color(0, 220, 0),
+            life_time=8.0,
+        )
+        world.debug.draw_string(
+            carla.Location(observer_marker.x, observer_marker.y, observer_marker.z + 0.55),
+            f"observer:{role}",
+            draw_shadow=True,
+            color=carla.Color(0, 220, 0),
+            life_time=8.0,
+        )
+        world.debug.draw_string(
+            carla.Location(anchor_marker.x, anchor_marker.y, anchor_marker.z + 0.55),
+            "anchor",
+            draw_shadow=True,
+            color=carla.Color(255, 0, 0),
+            life_time=8.0,
+        )
+    except RuntimeError:
+        pass
+
+
+def capture_rgb_sensor_frame(world, sensor, path, *, timeout_seconds):
+    frames = queue.Queue(maxsize=1)
+
+    def on_image(image):
+        try:
+            frames.put_nowait(image)
+        except queue.Full:
+            pass
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    sensor.listen(on_image)
+    deadline = time.time() + timeout_seconds
+    try:
+        while time.time() < deadline:
+            try:
+                image = frames.get(timeout=0.25)
+            except queue.Empty:
+                try:
+                    world.wait_for_tick(0.5)
+                except RuntimeError:
+                    time.sleep(0.1)
+                continue
+            image.save_to_disk(str(path))
+            return True
+    finally:
+        try:
+            sensor.stop()
+        except RuntimeError:
+            pass
+    return False
+
+
+def find_observer_camera_sensor(world, observer_camera_attachments, track_label, sensor_name):
+    for attachment in observer_camera_attachments:
+        if attachment.get("track_label") != track_label:
+            continue
+        if attachment.get("sensor_name") != sensor_name:
+            continue
+        sensor_actor_id = attachment.get("sensor_actor_id")
+        if sensor_actor_id is None:
+            continue
+        sensor = world.get_actor(int(sensor_actor_id))
+        if sensor is not None:
+            return sensor
+    return None
+
+
+def save_observer_scene_captures(
+    world,
+    spawned_walkers,
+    observer_camera_attachments,
+    config: ScenicCustomWalkerConfig,
+    *,
+    scenario_labels=(),
+):
+    if not spawned_walkers:
+        return tuple()
+
+    config.report_dir.mkdir(parents=True, exist_ok=True)
+    map_name = safe_map_name(world).split("/")[-1]
+    scenario_fragment = "base"
+    if scenario_labels:
+        scenario_fragment = sanitize_filename_fragment("_".join(scenario_labels[:4]))
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    capture_dir = config.report_dir / (
+        f"observer_scene_captures_{sanitize_filename_fragment(map_name)}_"
+        f"{scenario_fragment}_port{config.port}_{stamp}"
+    )
+    capture_dir.mkdir(parents=True, exist_ok=True)
+
+    captures = []
+    scene_camera_bp = configure_rgb_camera_blueprint(
+        world,
+        width=config.capture_image_width,
+        height=config.capture_image_height,
+        fov=82,
+    )
+
+    for spawned_walker in spawned_walkers:
+        observer_location = try_get_actor_location(spawned_walker.walker)
+        if observer_location is None or spawned_walker.anchor is None:
+            continue
+        anchor_location = resolve_anchor_location(world, spawned_walker.anchor)
+        observer_transform = spawned_walker.walker.get_transform()
+        target_yaw = yaw_toward(observer_location, anchor_location)
+        facing_error = abs(normalize_degrees(observer_transform.rotation.yaw - target_yaw))
+        role = spawned_walker.anchor.observer_role or spawned_walker.spec.blueprint_id
+        anchor_index = spawned_walker.anchor.anchor_index or len(captures) + 1
+        prefix = f"anchor{anchor_index}_{sanitize_filename_fragment(role)}"
+        draw_observer_capture_markers(
+            world,
+            observer_location,
+            anchor_location,
+            role=role,
+        )
+
+        scene_path = capture_dir / f"{prefix}_scene.png"
+        scene_transform = build_observer_scene_camera_transform(
+            observer_location,
+            anchor_location,
+        )
+        scene_sensor = world.spawn_actor(scene_camera_bp, scene_transform)
+        try:
+            scene_ok = capture_rgb_sensor_frame(
+                world,
+                scene_sensor,
+                scene_path,
+                timeout_seconds=config.capture_timeout_seconds,
+            )
+        finally:
+            try:
+                scene_sensor.destroy()
+            except RuntimeError:
+                pass
+        captures.append(
+            {
+                "capture_type": "external_scene",
+                "track_label": spawned_walker.track_label,
+                "observer_role": role,
+                "anchor_index": anchor_index,
+                "anchor_label": spawned_walker.anchor.label,
+                "path": str(scene_path),
+                "status": "saved" if scene_ok else "timeout",
+                "observer_location": serialize_location(observer_location),
+                "anchor_location": serialize_location(anchor_location),
+                "observer_yaw_degrees": round(float(observer_transform.rotation.yaw), 3),
+                "target_yaw_degrees": round(float(target_yaw), 3),
+                "facing_error_degrees": round(float(facing_error), 3),
+                "camera_transform": serialize_transform(scene_transform),
+            }
+        )
+
+        front_sensor = find_observer_camera_sensor(
+            world,
+            observer_camera_attachments,
+            spawned_walker.track_label,
+            "cam_front",
+        )
+        if front_sensor is None:
+            captures.append(
+                {
+                    "capture_type": "observer_cam_front",
+                    "track_label": spawned_walker.track_label,
+                    "observer_role": role,
+                    "anchor_index": anchor_index,
+                    "anchor_label": spawned_walker.anchor.label,
+                    "path": None,
+                    "status": "missing_sensor",
+                    "facing_error_degrees": round(float(facing_error), 3),
+                }
+            )
+            continue
+        front_path = capture_dir / f"{prefix}_cam_front.png"
+        front_ok = capture_rgb_sensor_frame(
+            world,
+            front_sensor,
+            front_path,
+            timeout_seconds=config.capture_timeout_seconds,
+        )
+        captures.append(
+            {
+                "capture_type": "observer_cam_front",
+                "track_label": spawned_walker.track_label,
+                "observer_role": role,
+                "anchor_index": anchor_index,
+                "anchor_label": spawned_walker.anchor.label,
+                "path": str(front_path),
+                "status": "saved" if front_ok else "timeout",
+                "facing_error_degrees": round(float(facing_error), 3),
+            }
+        )
+
+    return tuple(captures)
 
 
 def terminate_process(proc: subprocess.Popen) -> None:
@@ -1881,6 +2189,7 @@ def save_trajectory_report(
     observer_metrics=(),
     observer_camera_specs=(),
     observer_camera_attachments=(),
+    observer_scene_captures=(),
 ):
     config.report_dir.mkdir(parents=True, exist_ok=True)
     map_name = safe_map_name(world).split("/")[-1]
@@ -1921,6 +2230,7 @@ def save_trajectory_report(
         "observer_metrics": list(observer_metrics or ()),
         "observer_camera_specs": list(observer_camera_specs or ()),
         "observer_camera_attachments": list(observer_camera_attachments or ()),
+        "observer_scene_captures": list(observer_scene_captures or ()),
         "scenario_labels": list(scenario_labels),
         "anchor_assignments": list(anchor_assignments),
         "cooperation_links": build_cooperation_links(
@@ -2310,6 +2620,7 @@ def launch_scenic_process(
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
+        errors="replace",
         bufsize=1,
     )
 
@@ -2471,6 +2782,7 @@ def run_scenic_custom_walker_integration(
     observer_metrics = ()
     observer_camera_specs = ()
     observer_camera_attachments = ()
+    observer_scene_captures = ()
     ego_sampler = None
     tracked_actors = {}
     trajectory_samples = {}
@@ -2697,6 +3009,24 @@ def run_scenic_custom_walker_integration(
                 f"location=({location.x:.2f}, {location.y:.2f}, {location.z:.2f})"
             )
 
+        if config.save_observer_scene_captures:
+            observer_scene_captures = save_observer_scene_captures(
+                world,
+                spawned_walkers,
+                observer_camera_attachments,
+                config,
+                scenario_labels=resolved_scenario_labels,
+            )
+            saved_count = sum(
+                1
+                for capture in observer_scene_captures
+                if capture.get("status") == "saved"
+            )
+            logger(
+                f"Saved {saved_count}/{len(observer_scene_captures)} observer "
+                "scene/front camera captures."
+            )
+
         world = run_random_walker_routing(
             client,
             world,
@@ -2796,6 +3126,7 @@ def run_scenic_custom_walker_integration(
                 observer_metrics=observer_metrics,
                 observer_camera_specs=observer_camera_specs,
                 observer_camera_attachments=observer_camera_attachments,
+                observer_scene_captures=observer_scene_captures,
             )
             logger(f"Saved trajectory PNG: {trajectory_report_png}")
             logger(f"Saved focus trajectory PNG: {trajectory_report_focus_png}")
@@ -2835,6 +3166,7 @@ def run_scenic_custom_walker_integration(
             observer_metrics=observer_metrics,
             observer_camera_specs=observer_camera_specs,
             observer_camera_attachments=observer_camera_attachments,
+            observer_scene_captures=observer_scene_captures,
             scenic_returncode=scenic_proc.returncode,
             scenic_output_tail=tuple(output_lines[-20:]),
             trajectory_report_png=trajectory_report_png,

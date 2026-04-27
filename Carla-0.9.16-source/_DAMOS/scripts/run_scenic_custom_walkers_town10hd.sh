@@ -16,6 +16,7 @@ WEATHER="ClearNoon"
 
 PORT=2000
 HEADLESS=0
+OFFSCREEN=0
 RESTART=0
 SCENIC_TIME=8
 N_SCENARIOS=1
@@ -31,6 +32,10 @@ MAX_HUMANOIDS=0
 ATTACH_OBSERVER_CAMERAS=1
 OBSERVER_CAMERA_CONFIG="/home/vvu/vv/DAMOS/sensor_config.txt"
 SAVE_TRAJECTORY_REPORT=1
+SAVE_OBSERVER_SCENE_CAPTURES=0
+CAPTURE_IMAGE_WIDTH=1280
+CAPTURE_IMAGE_HEIGHT=720
+CAPTURE_TIMEOUT_SECONDS=6
 SERVER_WAIT_SECONDS=180
 SCENIC_TIMEOUT_SECONDS=60
 RESX=960
@@ -66,6 +71,14 @@ Options:
   --observer-camera-config PATH
                           sensor_config.txt-style camera mount log
   --no-trajectory-report Skip PNG/JSON report generation
+  --save-observer-scene-captures
+                          Save external observer-anchor and observer cam_front
+                          RGB captures during the Scenic run
+  --capture-image-width N Capture image width (default: 1280)
+  --capture-image-height N
+                          Capture image height (default: 720)
+  --capture-timeout-seconds N
+                          Seconds to wait for each camera frame (default: 6)
   --scenic-timeout N     Timeout passed to Scenic's CARLA model (default: 60)
   --map-name NAME        CARLA map name for server and Scenic (default: Town10HD_Opt)
   --map-xodr PATH        Scenic .xodr path override
@@ -74,6 +87,7 @@ Options:
   --resy N               GUI height when not headless (default: 540)
   --restart              Restart an existing matching Town10HD source server
   --headless             Start server with -nullrhi -nosound
+  --offscreen            Start server with -RenderOffScreen -nosound for RGB captures
   -h, --help             Show this help
 EOF
 }
@@ -249,6 +263,22 @@ while [[ $# -gt 0 ]]; do
       SAVE_TRAJECTORY_REPORT=0
       shift
       ;;
+    --save-observer-scene-captures)
+      SAVE_OBSERVER_SCENE_CAPTURES=1
+      shift
+      ;;
+    --capture-image-width)
+      CAPTURE_IMAGE_WIDTH="$2"
+      shift 2
+      ;;
+    --capture-image-height)
+      CAPTURE_IMAGE_HEIGHT="$2"
+      shift 2
+      ;;
+    --capture-timeout-seconds)
+      CAPTURE_TIMEOUT_SECONDS="$2"
+      shift 2
+      ;;
     --scenic-timeout)
       SCENIC_TIMEOUT_SECONDS="$2"
       shift 2
@@ -280,6 +310,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --headless)
       HEADLESS=1
+      shift
+      ;;
+    --offscreen)
+      OFFSCREEN=1
       shift
       ;;
     -h|--help)
@@ -367,6 +401,8 @@ if [[ -z "$SERVER_PID" ]]; then
 
   if [[ "$HEADLESS" -eq 1 ]]; then
     server_cmd+=(-nullrhi -nosound)
+  elif [[ "$OFFSCREEN" -eq 1 ]]; then
+    server_cmd+=(-RenderOffScreen -nosound)
   else
     server_cmd+=(-windowed "-ResX=$RESX" "-ResY=$RESY")
   fi
@@ -400,6 +436,16 @@ if [[ "$SAVE_TRAJECTORY_REPORT" -eq 0 ]]; then
   report_args=(--no-trajectory-report)
 fi
 
+capture_args=()
+if [[ "$SAVE_OBSERVER_SCENE_CAPTURES" -eq 1 ]]; then
+  capture_args=(
+    --save-observer-scene-captures
+    --capture-image-width "$CAPTURE_IMAGE_WIDTH"
+    --capture-image-height "$CAPTURE_IMAGE_HEIGHT"
+    --capture-timeout-seconds "$CAPTURE_TIMEOUT_SECONDS"
+  )
+fi
+
 selected_scenario_args=()
 if [[ -n "$SELECTED_SCENARIO" ]]; then
   selected_scenario_args=(--selected-scenario "$SELECTED_SCENARIO")
@@ -427,7 +473,8 @@ set +e
   --carla-map "$SCENIC_CARLA_MAP" \
   --map-xodr "$SCENIC_XODR" \
   --weather "$WEATHER" \
-  "${report_args[@]}"
+  "${report_args[@]}" \
+  "${capture_args[@]}"
 runner_status=$?
 set -e
 exit "$runner_status"
