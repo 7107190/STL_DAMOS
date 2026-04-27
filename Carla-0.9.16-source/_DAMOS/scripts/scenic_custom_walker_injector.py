@@ -1188,7 +1188,15 @@ def build_observer_zoom_camera_transform(observer_location, anchor_location):
     )
 
 
-def build_observer_topdown_camera_transform(observer_location, anchor_location, member_locations=()):
+def build_observer_topdown_camera_transform(
+    observer_location,
+    anchor_location,
+    member_locations=(),
+    *,
+    image_width=1280,
+    image_height=720,
+    fov=85,
+):
     points = [observer_location, anchor_location, *member_locations]
     xs = [float(point.x) for point in points]
     ys = [float(point.y) for point in points]
@@ -1197,15 +1205,12 @@ def build_observer_topdown_camera_transform(observer_location, anchor_location, 
     center_y = (min(ys) + max(ys)) * 0.5
     span_x = max(xs) - min(xs)
     span_y = max(ys) - min(ys)
-    observer_anchor_span = max(
-        1.0,
-        math.sqrt(
-            (float(observer_location.x) - float(anchor_location.x)) ** 2
-            + (float(observer_location.y) - float(anchor_location.y)) ** 2
-        ),
-    )
-    span = max(span_x, span_y, observer_anchor_span)
-    height = min(120.0, max(35.0, span * 1.45))
+    horizontal_fov = math.radians(max(1.0, float(fov)))
+    aspect = max(0.1, float(image_height) / max(1.0, float(image_width)))
+    vertical_fov = 2.0 * math.atan(math.tan(horizontal_fov * 0.5) * aspect)
+    height_for_x = span_x / max(0.1, 2.0 * math.tan(horizontal_fov * 0.5))
+    height_for_y = span_y / max(0.1, 2.0 * math.tan(vertical_fov * 0.5))
+    height = min(80.0, max(18.0, max(height_for_x, height_for_y) * 1.2))
     return carla.Transform(
         carla.Location(
             x=center_x,
@@ -1241,13 +1246,13 @@ def draw_observer_capture_markers(world, observer_location, anchor_location, *, 
     try:
         world.debug.draw_point(
             observer_marker,
-            size=0.28,
+            size=0.08,
             color=carla.Color(0, 220, 0),
             life_time=8.0,
         )
         world.debug.draw_point(
             anchor_marker,
-            size=0.28,
+            size=0.08,
             color=carla.Color(255, 0, 0),
             life_time=8.0,
         )
@@ -1533,12 +1538,15 @@ def save_observer_scene_captures(
             observer_location,
             anchor_location,
             anchor_member_locations(spawned_walker.anchor),
+            image_width=config.capture_image_width,
+            image_height=config.capture_image_height,
+            fov=85,
         )
         topdown_debug_bp = configure_rgb_camera_blueprint(
             world,
             width=config.capture_image_width,
             height=config.capture_image_height,
-            fov=80,
+            fov=85,
         )
         topdown_debug_sensor = world.spawn_actor(
             topdown_debug_bp,
