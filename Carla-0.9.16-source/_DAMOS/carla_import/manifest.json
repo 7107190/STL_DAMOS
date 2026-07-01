@@ -1,0 +1,109 @@
+{
+  "package_name": "DAMOSProps",
+  "assets": [
+    {
+      "id": "delivery_bot",
+      "display_name": "DeliveryBot",
+      "kind": "static_prop_candidate",
+      "include_in_import_package": true,
+      "tag": "Vehicles",
+      "size": "small",
+      "source_fbx": "_DAMOS/3d_model/delivery-bot-by-glowbox/source/DeliveryBot.fbx",
+      "target_fbx_name": "DeliveryBot.fbx",
+      "source_textures": [
+        "_DAMOS/3d_model/delivery-bot-by-glowbox/textures/DeliveryBot_Material_BaseColor.png",
+        "_DAMOS/3d_model/delivery-bot-by-glowbox/textures/DeliveryBot_Material_Metallic.png",
+        "_DAMOS/3d_model/delivery-bot-by-glowbox/textures/DeliveryBot_Material_Normal.png",
+        "_DAMOS/3d_model/delivery-bot-by-glowbox/textures/DeliveryBot_Material_Emissive.png",
+        "_DAMOS/3d_model/delivery-bot-by-glowbox/textures/DeliveryBot_Material_Roughness.png"
+      ],
+      "notes": "Wheeled robot model. Prepared as a static prop candidate first."
+    },
+    {
+      "id": "sweeper",
+      "display_name": "Sweeper",
+      "kind": "static_prop_candidate",
+      "include_in_import_package": true,
+      "tag": "Vehicles",
+      "size": "medium",
+      "source_fbx": "_DAMOS/3d_model/sweeper.fbx",
+      "target_fbx_name": "Sweeper.fbx",
+      "source_textures": [],
+      "notes": "Single FBX, suitable for a first static-prop import attempt."
+    },
+    {
+      "id": "space_walker_4",
+      "display_name": "SpaceWalker4",
+      "kind": "static_prop_candidate",
+      "include_in_import_package": true,
+      "tag": "Vehicles",
+      "size": "medium",
+      "source_fbx": "_DAMOS/3d_model/spacecar/source/space walkere 4.fbx",
+      "target_fbx_name": "SpaceWalker4.fbx",
+      "source_textures": [
+        "_DAMOS/3d_model/spacecar/textures/ALUM_1.jpg"
+      ],
+      "notes": "Renamed on export because the original FBX filename contains spaces."
+    },
+    {
+      "id": "toon_spaceship",
+      "display_name": "ToonSpaceship",
+      "kind": "static_prop_candidate",
+      "include_in_import_package": true,
+      "tag": "Other",
+      "size": "medium",
+      "source_fbx": "_DAMOS/3d_model/toon-spaceship/source/ToonSpaceship.fbx.fbx",
+      "target_fbx_name": "ToonSpaceship.fbx",
+      "source_textures": [],
+      "notes": "Renamed on export because the source file uses a duplicated .fbx extension."
+    },
+    {
+      "id": "spot_hp_rig",
+      "display_name": "SpotHPRIG",
+      "kind": "manual_review",
+      "include_in_import_package": false,
+      "tag": "Pedestrians",
+      "size": "small",
+      "source_fbx": "_DAMOS/3d_model/spotboston-dynamic-high-poly/source/SpotHPRIG.fbx",
+      "target_fbx_name": "SpotHPRIG.fbx",
+      "source_textures": [
+        "_DAMOS/3d_model/spotboston-dynamic-high-poly/textures/Material.001_Base_Color.png",
+        "_DAMOS/3d_model/spotboston-dynamic-high-poly/textures/Material.001_Metallic.png",
+        "_DAMOS/3d_model/spotboston-dynamic-high-poly/textures/Material.001_Normal_OpenGL.png",
+        "_DAMOS/3d_model/spotboston-dynamic-high-poly/textures/Material.001_Opacity.png",
+        "_DAMOS/3d_model/spotboston-dynamic-high-poly/textures/Material.001_Roughness.png",
+        "_DAMOS/3d_model/spotboston-dynamic-high-poly/textures/internal_ground_ao_texture.jpeg"
+      ],
+      "notes": "Likely rigged/skeletal. Needs Unreal-side review before importing as a prop or character."
+    },
+    {
+      "id": "mixamo_android",
+      "display_name": "CHR_R_Maxim",
+      "kind": "manual_review",
+      "include_in_import_package": false,
+      "tag": "Pedestrians",
+      "size": "small",
+      "source_fbx": "_DAMOS/3d_model/mixamo-bot-character-lowpoly.zip::source/CHR_R_Maxim.fbx",
+      "target_fbx_name": "CHR_R_Maxim.fbx",
+      "source_textures": [
+        "_DAMOS/3d_model/mixamo-bot-character-lowpoly.zip::textures/CHR_R_maximRed_MAT_baseColor.jpeg",
+        "_DAMOS/3d_model/mixamo-bot-character-lowpoly.zip::textures/CHR_R_maximRed_MAT_metallic.jpeg",
+        "_DAMOS/3d_model/mixamo-bot-character-lowpoly.zip::textures/CHR_R_maximRed_MAT_normal.png",
+        "_DAMOS/3d_model/mixamo-bot-character-lowpoly.zip::textures/CHR_R_maximRed_MAT_roughness.jpeg"
+      ],
+      "notes": "Likely intended for a custom walker/android pipeline, not the simple static-prop path."
+    },
+    {
+      "id": "blend_only_assets",
+      "display_name": "BlendOnlyAssets",
+      "kind": "manual_review",
+      "include_in_import_package": false,
+      "tag": "Other",
+      "size": "medium",
+      "source_fbx": "",
+      "target_fbx_name": "",
+      "source_textures": [],
+      "notes": "2.blend and robot_riged_model_1.blend require Blender export before CARLA import."
+    }
+  ]
+}

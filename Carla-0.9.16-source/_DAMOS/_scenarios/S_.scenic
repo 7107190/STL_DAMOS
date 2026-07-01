@@ -11,8 +11,13 @@ param map = localPath('../../Scenic/Maps/Town10HD.xodr')
 param carla_map = 'Town10HD'
 param snapToGroundDefault = True
 model scenic.simulators.carla.model   # 2D 호환: 실행 시 --2d 옵션
-param EGO_BLUEPRINT = 'vehicle.ford.mustang'
 param EGO_COLOR = Color(1, 0, 0)
+EGO_FIXED_OVERRIDE = globalParameters.get('EGO_START_FIXED', 'MISSING')
+EGO_X_OVERRIDE = globalParameters.get('EGO_START_X', 'MISSING')
+EGO_Y_OVERRIDE = globalParameters.get('EGO_START_Y', 0)
+EGO_HEADING_OVERRIDE = globalParameters.get('EGO_START_HEADING', 0)
+EGO_STATIC_OVERRIDE = globalParameters.get('EGO_STATIC', 0)
+EGO_BLUEPRINT_OVERRIDE = globalParameters.get('EGO_BLUEPRINT', 'vehicle.ford.mustang')
 
 param weather = Uniform(
   {'cloudiness': 30, 'sun_azimuth_angle': 270, 'sun_altitude_angle': 5, 'scattering_intensity': 60, 'wetness': 20},
@@ -21,50 +26,104 @@ param weather = Uniform(
   {'cloudiness': 60, 'sun_altitude_angle': -20, 'wetness': 95, 'fog_density': 10, 'scattering_intensity': 40},
 )
 
+behavior DAMOSJaywalkBehavior(reference_actor, speed=1, threshold=13):
+  while (distance from self to reference_actor) > threshold:
+    wait
+  while True:
+    do WalkForwardBehavior(speed)
+
+behavior DAMOSStandStillBehavior():
+  while True:
+    wait
+
 # 초기 시나리오: ego 생성 + 분기 실행
 scenario BaseSetup():
   setup:
-    lane = Uniform(*network.lanes)
-    spot = new OrientedPoint on lane.centerline
-    EGO_BP = globalParameters.get('EGO_BLUEPRINT', 'vehicle.ford.mustang')
-    EGO_CAR_COLOR = globalParameters.get('EGO_COLOR', Color(1, 0, 0))
-    ego = new Car following roadDirection from spot for Range(-40, -30), \
-        with blueprint EGO_BP, \
-        with color EGO_CAR_COLOR, \
-        with behavior AutopilotBehavior(), \
-        with rolename "ego", \
-        with snapToGround True
+    EGO_BP = EGO_BLUEPRINT_OVERRIDE
+    EGO_CAR_COLOR = Color(1, 0, 0)
+    EGO_IS_STATIC = int(EGO_STATIC_OVERRIDE)
+    EGO_IS_FIXED = int(EGO_FIXED_OVERRIDE) if EGO_FIXED_OVERRIDE != 'MISSING' else 0
+    if EGO_IS_FIXED:
+      EGO_X = float(EGO_X_OVERRIDE)
+      EGO_Y = float(EGO_Y_OVERRIDE)
+      EGO_HEADING = float(EGO_HEADING_OVERRIDE)
+      if EGO_IS_STATIC:
+        ego = new Car at (EGO_X, EGO_Y), \
+            with heading EGO_HEADING deg, \
+            with blueprint EGO_BP, \
+            with color EGO_CAR_COLOR, \
+            with regionContainedIn None, \
+            with rolename "ego", \
+            with snapToGround True
+      else:
+        ego = new Car at (EGO_X, EGO_Y), \
+            with heading EGO_HEADING deg, \
+            with blueprint EGO_BP, \
+            with color EGO_CAR_COLOR, \
+            with behavior AutopilotBehavior(), \
+            with regionContainedIn None, \
+            with rolename "ego", \
+            with snapToGround True
+    else:
+      lane = Uniform(*network.lanes)
+      spot = new OrientedPoint on lane.centerline
+      if EGO_IS_STATIC:
+        ego = new Car following roadDirection from spot for Range(-40, -30), \
+            with blueprint EGO_BP, \
+            with color EGO_CAR_COLOR, \
+            with rolename "ego", \
+            with snapToGround True
+      else:
+        ego = new Car following roadDirection from spot for Range(-40, -30), \
+            with blueprint EGO_BP, \
+            with color EGO_CAR_COLOR, \
+            with behavior AutopilotBehavior(), \
+            with rolename "ego", \
+            with snapToGround True
 
   compose:
     # 실행할 시나리오 개수 (CLI: --param N_SCENARIOS 5)
-    N = globalParameters.get('N_SCENARIOS', 2)
+    N = int(globalParameters.get('N_SCENARIOS', 2))
     SELECTED = globalParameters.get('SELECTED_SCENARIO', 'random')
-    for i in range(N):
-      INSTANCE_INDEX = i + 1
-      if SELECTED == 'S1':
-        do S1(INSTANCE_INDEX)
-      elif SELECTED == 'S2':
-        do S2(INSTANCE_INDEX)
-      elif SELECTED == 'S3':
-        do S3(INSTANCE_INDEX)
-      elif SELECTED == 'S4':
-        do S4(INSTANCE_INDEX)
-      elif SELECTED == 'S5':
-        do S5(INSTANCE_INDEX)
-      elif SELECTED == 'S6':
-        do S6(INSTANCE_INDEX)
-      elif SELECTED == 'S7':
-        do S7(INSTANCE_INDEX)
-      elif SELECTED == 'S8':
-        do S8(INSTANCE_INDEX)
-      elif SELECTED == 'S9':
-        do S9(INSTANCE_INDEX)
+    RANDOM_SELECTED_1 = globalParameters.get('SELECTED_SCENARIO_1', 'MISSING')
+    RANDOM_SELECTED_2 = globalParameters.get('SELECTED_SCENARIO_2', 'MISSING')
+    RANDOM_SELECTED_3 = globalParameters.get('SELECTED_SCENARIO_3', 'MISSING')
+
+    if SELECTED == 'random':
+      if RANDOM_SELECTED_1 != 'MISSING':
+        if N <= 1:
+          do AbnormalByLabel(RANDOM_SELECTED_1, 1)
+        elif N == 2:
+          do AbnormalByLabel(RANDOM_SELECTED_1, 1), AbnormalByLabel(RANDOM_SELECTED_2, 2)
+        else:
+          do AbnormalByLabel(RANDOM_SELECTED_1, 1), AbnormalByLabel(RANDOM_SELECTED_2, 2), AbnormalByLabel(RANDOM_SELECTED_3, 3)
+      elif N <= 1:
+        do RandomAbnormal(1)
+      elif N == 2:
+        do RandomAbnormal(1), RandomAbnormal(2)
       else:
-        do Uniform(
-          S1(INSTANCE_INDEX), S2(INSTANCE_INDEX), S3(INSTANCE_INDEX),
-          S4(INSTANCE_INDEX), S5(INSTANCE_INDEX), S6(INSTANCE_INDEX),
-          S7(INSTANCE_INDEX), S8(INSTANCE_INDEX), S9(INSTANCE_INDEX)
-        )
+        do RandomAbnormal(1), RandomAbnormal(2), RandomAbnormal(3)
+    else:
+      for i in range(N):
+        INSTANCE_INDEX = i + 1
+        if SELECTED == 'S1':
+          do S1(INSTANCE_INDEX)
+        elif SELECTED == 'S2':
+          do S2(INSTANCE_INDEX)
+        elif SELECTED == 'S3':
+          do S3(INSTANCE_INDEX)
+        elif SELECTED == 'S4':
+          do S4(INSTANCE_INDEX)
+        elif SELECTED == 'S5':
+          do S5(INSTANCE_INDEX)
+        elif SELECTED == 'S6':
+          do S6(INSTANCE_INDEX)
+        elif SELECTED == 'S7':
+          do S7(INSTANCE_INDEX)
+        elif SELECTED == 'S8':
+          do S8(INSTANCE_INDEX)
+        elif SELECTED == 'S9':
+          do S9(INSTANCE_INDEX)
     do S_end()
 
 
@@ -72,24 +131,72 @@ scenario S_end():
   setup:
     terminate after 3000 seconds
 
+scenario AbnormalByLabel(label='S1', instance_index=1):
+  compose:
+    if label == 'S1':
+      do S1(instance_index)
+    elif label == 'S2':
+      do S2(instance_index)
+    elif label == 'S3':
+      do S3(instance_index)
+    elif label == 'S4':
+      do S4(instance_index)
+    elif label == 'S5':
+      do S5(instance_index)
+    elif label == 'S6':
+      do S6(instance_index)
+    elif label == 'S7':
+      do S7(instance_index)
+    elif label == 'S8':
+      do S8(instance_index)
+    elif label == 'S9':
+      do S9(instance_index)
+
+scenario RandomAbnormal(instance_index=1):
+  compose:
+    do Uniform(
+      S1(instance_index), S2(instance_index), S3(instance_index),
+      S4(instance_index), S5(instance_index), S6(instance_index),
+      S7(instance_index), S8(instance_index), S9(instance_index)
+    )
+
 scenario S1(instance_index=1):  # 보행자 무단 횡단
   setup:
     SCENARIO_ROLE = f"damos.S1.{instance_index}"
-    PED_MIN_SPEED = 1
-    THRESHOLD = 13
-    N_PEDS = 3
-    spots = [ new OrientedPoint on (Uniform(*network.sidewalks)).centerline
-              for _ in range(N_PEDS) ]
+    PED_MIN_SPEED = 2.0
+    THRESHOLD = 15
+    # Randomized within three vetted Town10HD_Opt sidewalk-edge groups.
+    # Each group stays near a long non-junction road section so the jaywalk
+    # trigger remains reproducible when the ego approaches.
+    PED_SPECS = [
+      Uniform(
+        ((-87.0, -117.5), 146),
+        ((-81.0, -121.7), 146),
+        ((-75.0, -126.0), 146)
+      ),
+      Uniform(
+        ((33.0, -148.5), -0.3),
+        ((39.3, -148.5), -0.3),
+        ((45.5, -148.5), -0.3)
+      ),
+      Uniform(
+        ((31.5, 75.3), -178.7),
+        ((37.6, 75.3), -178.7),
+        ((43.8, 75.3), -178.7)
+      ),
+    ]
     pedestrians = [
-      new Pedestrian left of sp by 4,
-          with heading sp.heading + 90 deg,
+      new Pedestrian at pos,
+          with heading heading_deg deg,
           with regionContainedIn None,
           with rolename SCENARIO_ROLE,
-          with behavior CrossingBehavior(ego, min_speed=PED_MIN_SPEED, threshold=THRESHOLD)
-      for sp in spots
+          with behavior DAMOSJaywalkBehavior(ego, speed=PED_MIN_SPEED, threshold=THRESHOLD)
+      for pos, heading_deg in PED_SPECS
     ]
     print(f"S1#{instance_index}: 무단횡단 {len(pedestrians)}")
-    terminate after 1 seconds
+  compose:
+    while True:
+      wait
 
 scenario S2(instance_index=1): # 자전거 무단 횡단
   setup:
@@ -109,7 +216,7 @@ scenario S2(instance_index=1): # 자전거 무단 횡단
     ]
 
     print(f"S2#{instance_index}: 자전거 무단횡단 {len(bicycles)}대")
-    terminate after 1 seconds
+    terminate after 3000 seconds
 
 scenario S3(instance_index=1): # 비가시 영역 무단 횡단
   setup:
@@ -132,7 +239,7 @@ scenario S3(instance_index=1): # 비가시 영역 무단 횡단
         with rolename SCENARIO_ROLE,
         with behavior CrossingBehavior(ego, min_speed=PED_MIN_SPEED, threshold=THRESHOLD)
     print(f"S3#{instance_index}: 정차 차량 사이 무단횡단 3명")
-    terminate after 1 seconds
+    terminate after 3000 seconds
 
 scenario S4(instance_index=1):  # 도로위 장애물
   setup:
@@ -141,19 +248,18 @@ scenario S4(instance_index=1):  # 도로위 장애물
     spots = [ new OrientedPoint on (Uniform(*network.lanes)).centerline
               for _ in range(N_OBSTACLES) ]
     obstacles = [
-      new Car at sp.position,
+      new Container at sp.position,
           with blueprint Uniform(
-            "vehicle.jeep.wrangler_rubicon",
-            "vehicle.nissan.patrol",
-            "vehicle.tesla.model3",
-            "vehicle.toyota.prius"
+            "static.prop.container",
+            "static.prop.clothcontainer",
+            "static.prop.glasscontainer"
           ),
           with heading sp.heading,
           with rolename SCENARIO_ROLE,
           with regionContainedIn None
       for sp in spots
     ]
-    print(f"S4#{instance_index}: 도로위 정차 차량 장애물 {len(obstacles)}")
+    print(f"S4#{instance_index}: 도로위 대형 박스 장애물 {len(obstacles)}")
     terminate after 3000 seconds
 
 scenario S5(instance_index=1): # 인도 위 장애물
@@ -307,44 +413,65 @@ scenario S7(instance_index=1): # 인도 공사로 인한 통행 불가
 scenario S8(instance_index=1): # 인도 내 군중
   setup:
     SCENARIO_ROLE = f"damos.S8.{instance_index}"
-    NUM_CLUSTERS = 3
-    PEDS_PER_CLUSTER = 3
-    CLUSTER_SPREAD = 3
-    for k in range(NUM_CLUSTERS):
-      SW = Uniform(*network.sidewalks)
-      anchor = new OrientedPoint on SW.centerline
-      # 군집당 보행자들 생성
-      for j in range(PEDS_PER_CLUSTER):
-        new Pedestrian at anchor offset by Range(-CLUSTER_SPREAD, CLUSTER_SPREAD) @ Range(-CLUSTER_SPREAD, CLUSTER_SPREAD),
-          with heading anchor.heading - 90 deg,      # 보행 방향: 보도 법선 방향(예시)
+    CLUSTER_SPECS = [
+      ((-95.0, -90.0), 0),
+      ((37.6, 75.3), -178.7),
+      ((92.0, -85.0), 0),
+    ]
+    OFFSETS = [
+      (-1.2, -0.8, -18),
+      (-0.2, -1.1, 8),
+      (0.9, -0.7, 22),
+      (1.3, 0.2, -10),
+      (0.3, 0.7, 15),
+      (-0.8, 0.6, -28),
+      (0.7, 1.1, 35),
+    ]
+    for center, heading_deg in CLUSTER_SPECS:
+      anchor = new OrientedPoint at center, with heading heading_deg deg
+      for dx, dy, yaw_offset_deg in OFFSETS:
+        new Pedestrian at anchor offset by dx @ dy,
+          with heading (heading_deg + yaw_offset_deg) deg,
           with rolename SCENARIO_ROLE,
-          with regionContainedIn None                # 필요 시 None -> SW 로 바꿔 인도 내부 제한 가능
-          # with regionContainedIn SW
-    print(f"S8#{instance_index}: 인도내 군중 {NUM_CLUSTERS * PEDS_PER_CLUSTER}명")
-    terminate after 1 seconds
+          with behavior DAMOSStandStillBehavior(),
+          with regionContainedIn None
+    print(f"S8#{instance_index}: 인도내 군중 {len(CLUSTER_SPECS) * len(OFFSETS)}명")
+  compose:
+    while True:
+      wait
 
 scenario S9(instance_index=1): # 인도 쓰레기 더미
   setup:
     SCENARIO_ROLE = f"damos.S9.{instance_index}"
-    NUM_CLUSTERS = 5
-    OFFSETS = [1.0, 1.3]                  # 좌우로 깔 오프셋(m) 리스트 (예: 1m, 1m+0.3m)
-    MODEL_LIST = ["static.prop.trashbag"] # 필요하면 여러 모델을 넣어 랜덤 사용
-    for k in range(NUM_CLUSTERS):
-      SW = Uniform(*network.sidewalks)
-      obs = new OrientedPoint on SW.centerline
+    CLUSTER_SPECS = [
+      ((-3.8, 75.4), 0),
+      ((-59.6, -47.1), 0),
+      ((32.5, -44.1), 0),
+      ((92.1, 12.1), 0),
+      ((16.5, -123.1), 0),
+    ]
+    OFFSETS = [0.4, 0.8, 1.2, 1.6]        # 좌우로 깔 오프셋(m)
+    MODEL_LIST = [
+      "static.prop.trashcan03",
+      "static.prop.trashcan04",
+      "static.prop.trashcan05",
+      "static.prop.bin",
+    ]
+    for center, heading_deg in CLUSTER_SPECS:
+      obs = new OrientedPoint at center, with heading heading_deg deg
 
       # 좌/우 대칭 배치
       for d in OFFSETS:
         new Trash left  of obs by d,
-          with model Uniform(*MODEL_LIST),
+          with blueprint Uniform(*MODEL_LIST),
           with heading 0 deg,
           with rolename SCENARIO_ROLE,
           with regionContainedIn None
         new Trash right of obs by d,
-          with model Uniform(*MODEL_LIST),
+          with blueprint Uniform(*MODEL_LIST),
           with heading 0 deg,
           with rolename SCENARIO_ROLE,
           with regionContainedIn None
 
-    print(f"S9#{instance_index}: 인도 쓰레기 더미 {NUM_CLUSTERS * len(OFFSETS) * 2}개")
-    terminate after 1 seconds
+    print(f"S9#{instance_index}: 인도 쓰레기 더미 {len(CLUSTER_SPECS) * len(OFFSETS) * 2}개")
+    terminate after 3000 seconds

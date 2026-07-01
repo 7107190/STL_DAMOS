@@ -1,77 +1,54 @@
-# CARLA 바이너리 & 대용량 파일
-CarlaUE4/
-Engine/
-HDMaps/
-Import/
-Tools/
-Co-Simulation/
-Dockerfile
-ImportAssets.sh
-CarlaUE4.sh
-Manifest_DebugFiles_Linux.txt
-CHANGELOG
-LICENSE
-VERSION
+# DAMOS GitHub mirror ignores generated output and vendor checkouts.
 
-# 하위 git 저장소
-Scenic/.git/
-Plugins/.git/
-
-# Plugins (외부 클론)
-Plugins/
-# DAMOS Unreal source overlay kept in this repo.
-!Unreal/
-!Unreal/CarlaUE4/
-!Unreal/CarlaUE4/Plugins/
-!Unreal/CarlaUE4/Plugins/Carla/
-!Unreal/CarlaUE4/Plugins/Carla/Source/
-!Unreal/CarlaUE4/Plugins/Carla/Source/Carla/
-!Unreal/CarlaUE4/Plugins/Carla/Source/Carla/Damos/
-!Unreal/CarlaUE4/Plugins/Carla/Source/Carla/Damos/*
-
-# PythonAPI (기본 CARLA 포함)
-PythonAPI/
-
-# Scenic 원본 소스 (외부 레포, 커스텀 폴더만 추적)
-Scenic/.git/
-Scenic/.github/
-Scenic/.coveragerc
-Scenic/.git-blame-ignore-revs
-Scenic/.pre-commit-config.yaml
-Scenic/.readthedocs.yaml
-Scenic/.gitignore
-Scenic/CODE_OF_CONDUCT.md
-Scenic/Makefile
-Scenic/README.md
-!Scenic/README.md
-Scenic/assets/
-Scenic/codecov.yml
-Scenic/docs/
-Scenic/examples/
-Scenic/pyproject.toml
-Scenic/src/
-Scenic/tests/
-Scenic/tools/
-Scenic/tox.ini
-Scenic/toxfile.py
-
-# 기타
-.egg
+# Runtime/generated output
 Carla-0.9.16-source/_DAMOS/logs/
 Carla-0.9.16-source/_DAMOS/reports/
+Carla-0.9.16-source/_DAMOS/_tmp_sync/
+Carla-0.9.16-source/_DAMOS/_tmp_upload/
+Carla-0.9.16-source/_DAMOS/backups/
+Carla-0.9.16-source/_DAMOS/legacy_stl_damos/
+
+# Large source assets kept only on vvu
 Carla-0.9.16-source/_DAMOS/3d_model/
+
+# Full CARLA vendor/build tree. Only selected overlay paths are tracked.
+Carla-0.9.16-source/*
+!Carla-0.9.16-source/Scenic/
+!Carla-0.9.16-source/Unreal/
+!Carla-0.9.16-source/_DAMOS/
+
+Carla-0.9.16-source/Scenic/*
+!Carla-0.9.16-source/Scenic/README.md
+!Carla-0.9.16-source/Scenic/Maps/
+Carla-0.9.16-source/Scenic/Maps/*.snet
+
+Carla-0.9.16-source/Unreal/*
+!Carla-0.9.16-source/Unreal/CarlaUE4/
+Carla-0.9.16-source/Unreal/CarlaUE4/*
+!Carla-0.9.16-source/Unreal/CarlaUE4/Plugins/
+Carla-0.9.16-source/Unreal/CarlaUE4/Plugins/*
+!Carla-0.9.16-source/Unreal/CarlaUE4/Plugins/Carla/
+Carla-0.9.16-source/Unreal/CarlaUE4/Plugins/Carla/*
+!Carla-0.9.16-source/Unreal/CarlaUE4/Plugins/Carla/Source/
+Carla-0.9.16-source/Unreal/CarlaUE4/Plugins/Carla/Source/*
+!Carla-0.9.16-source/Unreal/CarlaUE4/Plugins/Carla/Source/Carla/
+Carla-0.9.16-source/Unreal/CarlaUE4/Plugins/Carla/Source/Carla/*
+!Carla-0.9.16-source/Unreal/CarlaUE4/Plugins/Carla/Source/Carla/Damos/
+
+# Full Unreal Engine checkout is external. Keep only dependency note.
+UnrealEngine_4.26/*
+!UnrealEngine_4.26/README.md
+
+# Python/cache/editor/OS files
+__pycache__/
+*.py[cod]
+*.pyo
 *.log
 *.tmp
-
-# Python 환경
+.venv/
 venv/
-__pycache__/
-*.pyc
-*.pyo
-
-# IDE
 .vscode/
-
-# OS
+.idea/
 .DS_Store
+._.DS_Store
 Thumbs.db

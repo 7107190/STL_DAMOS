@@ -29,6 +29,18 @@ WIDE_REGION_ANCHOR_KINDS = {
     "vehicle_region",
     "construction_region",
 }
+S5_OPPOSITE_SIDEWALK_ANCHOR_KINDS = {
+    "s5_vehicle_region",
+    "scenario_s5",
+}
+S6_OPPOSITE_SIDEWALK_ANCHOR_KINDS = {
+    "s6_construction_region",
+    "scenario_s6",
+}
+S7_CLEAR_SIDEWALK_ANCHOR_KINDS = {
+    "s7_construction_region",
+    "scenario_s7",
+}
 DEFAULT_OBSERVER_RADIUS_PROFILE = {
     "preferred_radius": 7.0,
     "min_radius": 3.0,
@@ -40,6 +52,30 @@ WIDE_REGION_OBSERVER_RADIUS_PROFILE = {
     "min_radius": 12.0,
     "max_radius": 22.0,
     "navigation_max_radius": 22.0,
+}
+S5_OPPOSITE_SIDEWALK_OBSERVER_RADIUS_PROFILE = {
+    "preferred_radius": 25.0,
+    "min_radius": 20.0,
+    "max_radius": 32.0,
+    "navigation_max_radius": 32.0,
+}
+S6_OPPOSITE_SIDEWALK_OBSERVER_RADIUS_PROFILE = {
+    "preferred_radius": 18.0,
+    "min_radius": 8.0,
+    "max_radius": 32.0,
+    "navigation_max_radius": 32.0,
+}
+S7_CLEAR_SIDEWALK_OBSERVER_RADIUS_PROFILE = {
+    "preferred_radius": 20.0,
+    "min_radius": 10.0,
+    "max_radius": 32.0,
+    "navigation_max_radius": 32.0,
+}
+CONSTRUCTION_REGION_OBSERVER_RADIUS_PROFILE = {
+    "preferred_radius": 16.0,
+    "min_radius": 8.0,
+    "max_radius": 32.0,
+    "navigation_max_radius": 32.0,
 }
 
 
@@ -157,6 +193,57 @@ DEFAULT_OBSERVER_CAMERA_SPECS = (
     ),
 )
 
+DEFAULT_VEHICLE_CAMERA_SPECS = (
+    ObserverCameraSpec(
+        name="cam_front",
+        blueprint_id="sensor.camera.rgb",
+        transform=carla.Transform(
+            carla.Location(x=1.5, y=0.0, z=1.75),
+            carla.Rotation(pitch=0.0, yaw=0.0, roll=0.0),
+        ),
+    ),
+    ObserverCameraSpec(
+        name="cam_front_left",
+        blueprint_id="sensor.camera.rgb",
+        transform=carla.Transform(
+            carla.Location(x=1.5, y=-0.58, z=1.75),
+            carla.Rotation(pitch=0.0, yaw=-55.0, roll=0.0),
+        ),
+    ),
+    ObserverCameraSpec(
+        name="cam_front_right",
+        blueprint_id="sensor.camera.rgb",
+        transform=carla.Transform(
+            carla.Location(x=1.5, y=0.54, z=1.75),
+            carla.Rotation(pitch=0.0, yaw=55.0, roll=0.0),
+        ),
+    ),
+    ObserverCameraSpec(
+        name="cam_back",
+        blueprint_id="sensor.camera.rgb",
+        transform=carla.Transform(
+            carla.Location(x=-1.5, y=0.0, z=1.75),
+            carla.Rotation(pitch=0.0, yaw=180.0, roll=0.0),
+        ),
+    ),
+    ObserverCameraSpec(
+        name="cam_back_left",
+        blueprint_id="sensor.camera.rgb",
+        transform=carla.Transform(
+            carla.Location(x=-0.75, y=-0.58, z=1.75),
+            carla.Rotation(pitch=0.0, yaw=-110.0, roll=0.0),
+        ),
+    ),
+    ObserverCameraSpec(
+        name="cam_back_right",
+        blueprint_id="sensor.camera.rgb",
+        transform=carla.Transform(
+            carla.Location(x=-0.75, y=0.58, z=1.75),
+            carla.Rotation(pitch=0.0, yaw=110.0, roll=0.0),
+        ),
+    ),
+)
+
 
 def format_location(location):
     return f"({location.x:.2f}, {location.y:.2f}, {location.z:.2f})"
@@ -192,10 +279,13 @@ def try_get_actor_location(actor):
 
 
 def actor_is_alive(actor):
+    if not bool(getattr(actor, "is_alive", True)):
+        return False
     try:
-        return bool(actor.is_alive)
-    except (AttributeError, RuntimeError):
+        actor.get_transform()
         return True
+    except RuntimeError:
+        return False
 
 
 def location_from_sample(sample):
@@ -238,40 +328,48 @@ def serialize_transform(transform):
     }
 
 
-def serialize_observer_camera_specs(camera_specs):
-    return tuple(
-        {
+def serialize_observer_camera_specs(camera_specs, *, target_kind=None):
+    serialized = []
+    for spec in camera_specs:
+        item = {
             "name": spec.name,
             "blueprint_id": spec.blueprint_id,
             "transform": serialize_transform(spec.transform),
         }
-        for spec in camera_specs
-    )
+        if target_kind is not None:
+            item["target_kind"] = target_kind
+        serialized.append(item)
+    return tuple(serialized)
 
 
-def load_observer_camera_specs(sensor_config_path=None):
+def load_camera_specs_from_sensor_config(
+    sensor_config_path,
+    *,
+    actor_type_token,
+    fallback_specs,
+):
     if sensor_config_path is None:
-        return DEFAULT_OBSERVER_CAMERA_SPECS
+        return fallback_specs
 
     try:
         config_text = sensor_config_path.read_text(encoding="utf-8")
     except OSError:
-        return DEFAULT_OBSERVER_CAMERA_SPECS
+        return fallback_specs
 
-    in_walker_block = False
+    in_selected_block = False
     specs_by_name = {}
     for raw_line in config_text.splitlines():
         line = raw_line.strip()
         if line.startswith("Initializing Mobility"):
-            in_walker_block = "walker." in line
+            in_selected_block = actor_type_token in line
             specs_by_name = {}
             continue
-        if not in_walker_block:
+        if not in_selected_block:
             continue
         if line.startswith("Successfully attached"):
             if all(name in specs_by_name for name in OBSERVER_CAMERA_NAMES):
                 return tuple(specs_by_name[name] for name in OBSERVER_CAMERA_NAMES)
-            in_walker_block = False
+            in_selected_block = False
             specs_by_name = {}
             continue
 
@@ -293,7 +391,23 @@ def load_observer_camera_specs(sensor_config_path=None):
             transform=transform,
         )
 
-    return DEFAULT_OBSERVER_CAMERA_SPECS
+    return fallback_specs
+
+
+def load_observer_camera_specs(sensor_config_path=None):
+    return load_camera_specs_from_sensor_config(
+        sensor_config_path,
+        actor_type_token="walker.",
+        fallback_specs=DEFAULT_OBSERVER_CAMERA_SPECS,
+    )
+
+
+def load_vehicle_camera_specs(sensor_config_path=None):
+    return load_camera_specs_from_sensor_config(
+        sensor_config_path,
+        actor_type_token="vehicle.",
+        fallback_specs=DEFAULT_VEHICLE_CAMERA_SPECS,
+    )
 
 
 def safe_sensor_role_name(track_label, sensor_name):
@@ -367,7 +481,22 @@ def sidewalk_waypoint_for_location(
     return waypoint
 
 
-def is_sidewalk_location(world, location, *, max_project_distance=1.5):
+def is_sidewalk_location(
+    world,
+    location,
+    *,
+    max_project_distance=1.5,
+    strict=False,
+):
+    if strict:
+        return (
+            sidewalk_waypoint_for_location(
+                world,
+                location,
+                project_to_road=False,
+            )
+            is not None
+        )
     return (
         sidewalk_waypoint_for_location(
             world,
@@ -377,6 +506,67 @@ def is_sidewalk_location(world, location, *, max_project_distance=1.5):
         )
         is not None
     )
+
+
+def nearby_driving_waypoints(world, location, *, sample_distance=5.0, samples_each_way=4):
+    try:
+        waypoint = world.get_map().get_waypoint(
+            location,
+            project_to_road=True,
+            lane_type=carla.LaneType.Driving,
+        )
+    except RuntimeError:
+        return []
+    if waypoint is None:
+        return []
+
+    waypoints = [waypoint]
+    for step in range(1, samples_each_way + 1):
+        distance = sample_distance * step
+        for next_waypoint in waypoint.next(distance):
+            waypoints.append(next_waypoint)
+        try:
+            previous_waypoints = waypoint.previous(distance)
+        except AttributeError:
+            previous_waypoints = []
+        for previous_waypoint in previous_waypoints:
+            waypoints.append(previous_waypoint)
+
+    deduped = []
+    seen = set()
+    for candidate in waypoints:
+        key = (
+            getattr(candidate, "road_id", None),
+            getattr(candidate, "section_id", None),
+            getattr(candidate, "lane_id", None),
+            round(float(getattr(candidate, "s", 0.0)), 1),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(candidate)
+    return deduped
+
+
+def adjacent_sidewalk_waypoints(driving_waypoint, *, max_lane_steps=8):
+    sidewalk_waypoints = []
+    for direction in ("left", "right"):
+        waypoint = driving_waypoint
+        for _ in range(max_lane_steps):
+            try:
+                waypoint = (
+                    waypoint.get_left_lane()
+                    if direction == "left"
+                    else waypoint.get_right_lane()
+                )
+            except RuntimeError:
+                waypoint = None
+            if waypoint is None:
+                break
+            if waypoint.lane_type == carla.LaneType.Sidewalk:
+                sidewalk_waypoints.append(waypoint)
+                break
+    return sidewalk_waypoints
 
 
 def sidewalk_spawn_locations_near_anchor(
@@ -391,6 +581,47 @@ def sidewalk_spawn_locations_near_anchor(
 ):
     candidates = []
     seen = set()
+
+    def add_candidate(sidewalk_location, probe_location, *, priority):
+        anchor_distance = distance_between(sidewalk_location, anchor_location)
+        if anchor_distance < min_radius or anchor_distance > max_radius:
+            return
+        if any(
+            distance_between(sidewalk_location, avoid_location) < avoid_radius
+            for avoid_location in avoid_locations
+        ):
+            return
+
+        dedupe_key = (
+            round(float(sidewalk_location.x), 1),
+            round(float(sidewalk_location.y), 1),
+            round(float(sidewalk_location.z), 1),
+        )
+        if dedupe_key in seen:
+            return
+        seen.add(dedupe_key)
+        spawn_location = carla.Location(
+            x=float(sidewalk_location.x),
+            y=float(sidewalk_location.y),
+            z=float(sidewalk_location.z) + 0.8,
+        )
+        projection_error = distance_between(sidewalk_location, probe_location)
+        score = (
+            priority
+            + abs(anchor_distance - preferred_radius)
+            + projection_error * 0.35
+        )
+        candidates.append((score, spawn_location))
+
+    for driving_waypoint in nearby_driving_waypoints(world, anchor_location):
+        for sidewalk_waypoint in adjacent_sidewalk_waypoints(driving_waypoint):
+            sidewalk_location = sidewalk_waypoint.transform.location
+            add_candidate(
+                sidewalk_location,
+                driving_waypoint.transform.location,
+                priority=0.0,
+            )
+
     for radius in (4.0, 6.0, 8.0, 10.0, 12.0, 14.0, 18.0, 22.0, 26.0):
         if radius < min_radius or radius > max_radius + 4.0:
             continue
@@ -411,6 +642,196 @@ def sidewalk_spawn_locations_near_anchor(
                 continue
 
             sidewalk_location = waypoint.transform.location
+            add_candidate(
+                sidewalk_location,
+                probe_location,
+                priority=4.0,
+            )
+
+    candidates.sort(key=lambda item: item[0])
+    return [location for _score, location in candidates]
+
+
+def opposite_sidewalk_locations_near_anchor(
+    world,
+    anchor_location,
+    *,
+    preferred_radius=16.0,
+    min_radius=8.0,
+    max_radius=32.0,
+    avoid_locations=(),
+    avoid_radius=2.5,
+):
+    try:
+        center_waypoint = world.get_map().get_waypoint(
+            anchor_location,
+            project_to_road=True,
+            lane_type=carla.LaneType.Driving,
+        )
+    except RuntimeError:
+        center_waypoint = None
+    if center_waypoint is None:
+        return []
+
+    candidates = []
+    seen = set()
+    center_location = center_waypoint.transform.location
+    side_x = float(anchor_location.x) - float(center_location.x)
+    side_y = float(anchor_location.y) - float(center_location.y)
+    side_norm = sqrt(side_x * side_x + side_y * side_y)
+
+    def add_candidate(sidewalk_location, *, priority):
+        anchor_distance = distance_between(sidewalk_location, anchor_location)
+        if anchor_distance < min_radius or anchor_distance > max_radius:
+            return
+        if any(
+            distance_between(sidewalk_location, avoid_location) < avoid_radius
+            for avoid_location in avoid_locations
+        ):
+            return
+
+        dedupe_key = (
+            round(float(sidewalk_location.x), 1),
+            round(float(sidewalk_location.y), 1),
+            round(float(sidewalk_location.z), 1),
+        )
+        if dedupe_key in seen:
+            return
+        seen.add(dedupe_key)
+        spawn_location = carla.Location(
+            x=float(sidewalk_location.x),
+            y=float(sidewalk_location.y),
+            z=float(sidewalk_location.z) + 0.8,
+        )
+        score = priority + abs(anchor_distance - preferred_radius)
+        candidates.append((score, spawn_location))
+
+    if side_norm >= 1.0:
+        sample_limit = int(max(max_radius + 6.0, preferred_radius + 8.0))
+        for dx in range(-sample_limit, sample_limit + 1, 2):
+            for dy in range(-sample_limit, sample_limit + 1, 2):
+                probe_location = carla.Location(
+                    x=float(anchor_location.x) + dx,
+                    y=float(anchor_location.y) + dy,
+                    z=float(anchor_location.z),
+                )
+                waypoint = sidewalk_waypoint_for_location(
+                    world,
+                    probe_location,
+                    project_to_road=True,
+                    max_project_distance=1.0,
+                )
+                if waypoint is None:
+                    continue
+                sidewalk_location = waypoint.transform.location
+                candidate_x = float(sidewalk_location.x) - float(center_location.x)
+                candidate_y = float(sidewalk_location.y) - float(center_location.y)
+                side_dot = candidate_x * side_x + candidate_y * side_y
+                if side_dot >= -(side_norm * side_norm * 0.2):
+                    continue
+                add_candidate(sidewalk_location, priority=0.0)
+
+    if candidates:
+        candidates.sort(key=lambda item: item[0])
+        return [location for _score, location in candidates]
+
+    anchor_lane_sign = 1 if int(getattr(center_waypoint, "lane_id", 0)) >= 0 else -1
+    for driving_waypoint in nearby_driving_waypoints(
+        world,
+        anchor_location,
+        sample_distance=6.0,
+        samples_each_way=6,
+    ):
+        lane_sign = 1 if int(getattr(driving_waypoint, "lane_id", 0)) >= 0 else -1
+        if lane_sign == anchor_lane_sign:
+            continue
+        for sidewalk_waypoint in adjacent_sidewalk_waypoints(
+            driving_waypoint,
+            max_lane_steps=10,
+        ):
+            sidewalk_location = sidewalk_waypoint.transform.location
+            anchor_distance = distance_between(sidewalk_location, anchor_location)
+            if anchor_distance < min_radius or anchor_distance > max_radius:
+                continue
+            if any(
+                distance_between(sidewalk_location, avoid_location) < avoid_radius
+                for avoid_location in avoid_locations
+            ):
+                continue
+
+            add_candidate(sidewalk_location, priority=4.0)
+
+    candidates.sort(key=lambda item: item[0])
+    return [location for _score, location in candidates]
+
+
+def s6_opposite_sidewalk_locations_near_anchor(
+    world,
+    anchor_location,
+    *,
+    preferred_radius=18.0,
+    min_radius=8.0,
+    max_radius=32.0,
+    avoid_locations=(),
+    avoid_radius=2.5,
+):
+    candidates = []
+    seen = set()
+    sample_limit = int(max(max_radius + 8.0, preferred_radius + 12.0))
+    world_map = world.get_map()
+
+    def sidewalk_location_shifted_toward_road(sidewalk_location, lane_width):
+        try:
+            driving_waypoint = world_map.get_waypoint(
+                sidewalk_location,
+                project_to_road=True,
+                lane_type=carla.LaneType.Driving,
+            )
+        except RuntimeError:
+            driving_waypoint = None
+        if driving_waypoint is None:
+            return sidewalk_location
+
+        driving_location = driving_waypoint.transform.location
+        dx = float(driving_location.x) - float(sidewalk_location.x)
+        dy = float(driving_location.y) - float(sidewalk_location.y)
+        norm = sqrt(dx * dx + dy * dy)
+        if norm < 1e-3:
+            return sidewalk_location
+
+        shift = min(2.4, max(1.2, float(lane_width) * 0.4))
+        shifted_location = carla.Location(
+            x=float(sidewalk_location.x) + dx / norm * shift,
+            y=float(sidewalk_location.y) + dy / norm * shift,
+            z=float(sidewalk_location.z),
+        )
+        if is_sidewalk_location(world, shifted_location, strict=True):
+            return shifted_location
+        return sidewalk_location
+
+    for dx in range(-sample_limit, sample_limit + 1, 2):
+        for dy in range(-sample_limit, sample_limit + 1, 2):
+            probe_location = carla.Location(
+                x=float(anchor_location.x) + dx,
+                y=float(anchor_location.y) + dy,
+                z=float(anchor_location.z),
+            )
+            waypoint = sidewalk_waypoint_for_location(
+                world,
+                probe_location,
+                project_to_road=True,
+                max_project_distance=1.0,
+            )
+            if waypoint is None:
+                continue
+            if int(getattr(waypoint, "lane_id", 0)) >= 0:
+                continue
+
+            sidewalk_location = waypoint.transform.location
+            sidewalk_location = sidewalk_location_shifted_toward_road(
+                sidewalk_location,
+                getattr(waypoint, "lane_width", 0.0),
+            )
             anchor_distance = distance_between(sidewalk_location, anchor_location)
             if anchor_distance < min_radius or anchor_distance > max_radius:
                 continue
@@ -428,14 +849,107 @@ def sidewalk_spawn_locations_near_anchor(
             if dedupe_key in seen:
                 continue
             seen.add(dedupe_key)
+
             spawn_location = carla.Location(
                 x=float(sidewalk_location.x),
                 y=float(sidewalk_location.y),
                 z=float(sidewalk_location.z) + 0.8,
             )
-            projection_error = distance_between(sidewalk_location, probe_location)
-            score = abs(anchor_distance - preferred_radius) + projection_error * 0.35
+            score = abs(anchor_distance - preferred_radius)
             candidates.append((score, spawn_location))
+
+    candidates.sort(key=lambda item: item[0])
+    return [location for _score, location in candidates]
+
+
+def s7_clear_sidewalk_locations_near_anchor(
+    world,
+    anchor_location,
+    *,
+    preferred_radius=20.0,
+    min_radius=10.0,
+    max_radius=32.0,
+    avoid_locations=(),
+    avoid_radius=2.5,
+):
+    # S7 is a fixed sidewalk-construction cluster. Place the observer on the
+    # northwest diagonal sidewalk around x=40, y=75 so the construction area is
+    # visible without looking along the tree/lamp line.
+    offset_candidates = (
+        (-17.0, 17.0),
+        (-15.0, 17.0),
+        (-19.0, 17.0),
+        (-17.0, 15.0),
+        (-17.0, 19.0),
+        (-15.0, 15.0),
+        (-19.0, 19.0),
+        (19.0, -1.0),
+    )
+
+    candidates = []
+    seen = set()
+
+    def add_candidate(location, *, priority):
+        anchor_distance = distance_between(location, anchor_location)
+        if anchor_distance < min_radius or anchor_distance > max_radius:
+            return False
+        if any(
+            distance_between(location, avoid_location) < avoid_radius
+            for avoid_location in avoid_locations
+        ):
+            return False
+        if not is_sidewalk_location(world, location, strict=True):
+            return False
+
+        dedupe_key = (
+            round(float(location.x), 1),
+            round(float(location.y), 1),
+            round(float(location.z), 1),
+        )
+        if dedupe_key in seen:
+            return False
+        seen.add(dedupe_key)
+        spawn_location = carla.Location(
+            x=float(location.x),
+            y=float(location.y),
+            z=float(location.z) + 0.8,
+        )
+        score = priority + abs(anchor_distance - preferred_radius) * 0.05
+        candidates.append((score, spawn_location))
+        return True
+
+    for priority, (dx, dy) in enumerate(offset_candidates):
+        target_location = carla.Location(
+            x=float(anchor_location.x) + dx,
+            y=float(anchor_location.y) + dy,
+            z=float(anchor_location.z),
+        )
+        target_waypoint = sidewalk_waypoint_for_location(
+            world,
+            target_location,
+            project_to_road=True,
+            max_project_distance=3.5,
+        )
+        if target_waypoint is None:
+            continue
+        add_candidate(
+            target_waypoint.transform.location,
+            priority=float(priority) * 0.2,
+        )
+
+    for location in sidewalk_spawn_locations_near_anchor(
+        world,
+        anchor_location,
+        preferred_radius=preferred_radius,
+        min_radius=min_radius,
+        max_radius=max_radius,
+        avoid_locations=avoid_locations,
+        avoid_radius=avoid_radius,
+    ):
+        lateral_offset = abs(float(location.x) - float(anchor_location.x))
+        if lateral_offset < 8.0:
+            continue
+        add_candidate(location, priority=8.0)
 
     candidates.sort(key=lambda item: item[0])
     return [location for _score, location in candidates]
@@ -453,6 +967,7 @@ def pick_navigation_location_near_anchor(
     avoid_radius=2.5,
     require_sidewalk=False,
     sidewalk_project_distance=2.0,
+    strict_sidewalk=False,
 ):
     best_location = None
     best_score = None
@@ -467,6 +982,7 @@ def pick_navigation_location_near_anchor(
                 world,
                 location,
                 max_project_distance=sidewalk_project_distance,
+                strict=strict_sidewalk,
             ):
                 continue
 
@@ -516,7 +1032,16 @@ def direct_observer_locations_near_anchor(
 
 
 def observer_radius_profile_for_anchor(anchor):
-    if getattr(anchor, "anchor_kind", "actor") in WIDE_REGION_ANCHOR_KINDS:
+    anchor_kind = getattr(anchor, "anchor_kind", "actor")
+    if anchor_kind in S5_OPPOSITE_SIDEWALK_ANCHOR_KINDS:
+        return S5_OPPOSITE_SIDEWALK_OBSERVER_RADIUS_PROFILE
+    if anchor_kind in S6_OPPOSITE_SIDEWALK_ANCHOR_KINDS:
+        return S6_OPPOSITE_SIDEWALK_OBSERVER_RADIUS_PROFILE
+    if anchor_kind in S7_CLEAR_SIDEWALK_ANCHOR_KINDS:
+        return S7_CLEAR_SIDEWALK_OBSERVER_RADIUS_PROFILE
+    if anchor_kind == "construction_region":
+        return CONSTRUCTION_REGION_OBSERVER_RADIUS_PROFILE
+    if anchor_kind in WIDE_REGION_ANCHOR_KINDS:
         return WIDE_REGION_OBSERVER_RADIUS_PROFILE
     return DEFAULT_OBSERVER_RADIUS_PROFILE
 
@@ -701,33 +1226,85 @@ def spawn_custom_walker(
     )
 
 
-def attach_observer_cameras(world, spawned_walkers, camera_specs):
+def freeze_spawned_observer(world, spawned_walker, spawn_transform):
+    try:
+        spawned_walker.controller.stop()
+    except RuntimeError:
+        pass
+    try:
+        spawned_walker.walker.set_simulate_physics(False)
+    except (AttributeError, RuntimeError):
+        pass
+    try:
+        spawned_walker.walker.set_transform(spawn_transform)
+    except RuntimeError:
+        pass
+    for _ in range(2):
+        try:
+            world.wait_for_tick(1.0)
+        except RuntimeError:
+            time.sleep(0.1)
+
+
+def attach_actor_cameras(
+    world,
+    actor,
+    camera_specs,
+    *,
+    track_label,
+    actor_role,
+    sensor_store=None,
+):
     attached = []
     library = world.get_blueprint_library()
+    for spec in camera_specs:
+        bp = library.find(spec.blueprint_id)
+        if bp.has_attribute("role_name"):
+            bp.set_attribute(
+                "role_name",
+                safe_sensor_role_name(track_label, spec.name),
+            )
+        sensor = world.spawn_actor(
+            bp,
+            spec.transform,
+            attach_to=actor,
+        )
+        if sensor_store is not None:
+            sensor_store.append(sensor)
+        item = {
+            "track_label": track_label,
+            "actor_role": actor_role,
+            "actor_id": actor.id,
+            "actor_type_id": actor.type_id,
+            "sensor_actor_id": sensor.id,
+            "sensor_name": spec.name,
+            "blueprint_id": spec.blueprint_id,
+            "relative_transform": serialize_transform(spec.transform),
+        }
+        if actor.type_id.startswith("walker."):
+            item["walker_actor_id"] = actor.id
+        attached.append(item)
+    return tuple(attached)
+
+
+def attach_observer_cameras(world, spawned_walkers, camera_specs):
+    attached = []
     for spawned_walker in spawned_walkers:
-        for spec in camera_specs:
-            bp = library.find(spec.blueprint_id)
-            if bp.has_attribute("role_name"):
-                bp.set_attribute(
-                    "role_name",
-                    safe_sensor_role_name(spawned_walker.track_label, spec.name),
-                )
-            sensor = world.spawn_actor(
-                bp,
-                spec.transform,
-                attach_to=spawned_walker.walker,
+        actor_role = (
+            spawned_walker.anchor.observer_role
+            if spawned_walker.anchor is not None
+            else spawned_walker.spec.blueprint_id
+        )
+        attached.extend(
+            attach_actor_cameras(
+                world,
+                spawned_walker.walker,
+                camera_specs,
+                track_label=spawned_walker.track_label,
+                actor_role=actor_role,
+                sensor_store=spawned_walker.sensors,
             )
-            spawned_walker.sensors.append(sensor)
-            attached.append(
-                {
-                    "track_label": spawned_walker.track_label,
-                    "walker_actor_id": spawned_walker.walker.id,
-                    "sensor_actor_id": sensor.id,
-                    "sensor_name": spec.name,
-                    "blueprint_id": spec.blueprint_id,
-                    "relative_transform": serialize_transform(spec.transform),
-                }
-            )
+        )
     return tuple(attached)
 
 
@@ -786,6 +1363,41 @@ def spawn_custom_walkers_near_anchors(
         spawned_walker = None
         radius_profile = observer_radius_profile_for_anchor(anchor)
         blocked_locations = [*used_locations, *anchor_member_locations(anchor)]
+        opposite_sidewalk_locations = []
+        anchor_kind = getattr(anchor, "anchor_kind", "actor")
+        if anchor_kind in S6_OPPOSITE_SIDEWALK_ANCHOR_KINDS:
+            opposite_sidewalk_locations = s6_opposite_sidewalk_locations_near_anchor(
+                world,
+                anchor.location,
+                preferred_radius=radius_profile["preferred_radius"],
+                min_radius=radius_profile["min_radius"],
+                max_radius=radius_profile["max_radius"],
+                avoid_locations=blocked_locations,
+                avoid_radius=3.0,
+            )
+        elif anchor_kind in S7_CLEAR_SIDEWALK_ANCHOR_KINDS:
+            opposite_sidewalk_locations = s7_clear_sidewalk_locations_near_anchor(
+                world,
+                anchor.location,
+                preferred_radius=radius_profile["preferred_radius"],
+                min_radius=radius_profile["min_radius"],
+                max_radius=radius_profile["max_radius"],
+                avoid_locations=blocked_locations,
+                avoid_radius=3.0,
+            )
+        elif anchor_kind in {
+            "construction_region",
+            *S5_OPPOSITE_SIDEWALK_ANCHOR_KINDS,
+        }:
+            opposite_sidewalk_locations = opposite_sidewalk_locations_near_anchor(
+                world,
+                anchor.location,
+                preferred_radius=radius_profile["preferred_radius"],
+                min_radius=radius_profile["min_radius"],
+                max_radius=radius_profile["max_radius"],
+                avoid_locations=blocked_locations,
+                avoid_radius=3.0,
+            )
         sidewalk_locations = sidewalk_spawn_locations_near_anchor(
             world,
             anchor.location,
@@ -807,15 +1419,24 @@ def spawn_custom_walkers_near_anchors(
                 avoid_locations=[*blocked_locations, *navigation_locations],
                 avoid_radius=3.0,
                 require_sidewalk=True,
-                sidewalk_project_distance=2.0,
+                sidewalk_project_distance=0.5,
+                strict_sidewalk=True,
             )
             if navigation_location is not None:
                 navigation_locations.append(navigation_location)
 
         if prefer_direct_spawn:
-            candidate_locations = [*sidewalk_locations, *navigation_locations]
+            candidate_locations = [
+                *opposite_sidewalk_locations,
+                *sidewalk_locations,
+                *navigation_locations,
+            ]
         else:
-            candidate_locations = [*navigation_locations, *sidewalk_locations]
+            candidate_locations = [
+                *opposite_sidewalk_locations,
+                *navigation_locations,
+                *sidewalk_locations,
+            ]
 
         for spawn_location in candidate_locations:
             spawn_transform = carla.Transform(
@@ -832,13 +1453,16 @@ def spawn_custom_walkers_near_anchors(
                 )
             except RuntimeError:
                 continue
+            if prefer_direct_spawn:
+                freeze_spawned_observer(world, candidate, spawn_transform)
             actual_location = candidate.walker.get_transform().location
             spawn_error = distance_between(actual_location, spawn_location)
             anchor_error = distance_between(actual_location, anchor.location)
             sidewalk_ok = is_sidewalk_location(
                 world,
                 actual_location,
-                max_project_distance=2.0,
+                max_project_distance=0.5,
+                strict=True,
             )
             if (
                 spawn_error <= 5.0
@@ -853,6 +1477,7 @@ def spawn_custom_walkers_near_anchors(
             used_locations.append(spawn_location)
 
         if spawned_walker is None:
+            destroy_spawned_walkers(spawned_walkers)
             raise RuntimeError(
                 f"Failed to spawn {blueprint_id} near anchor "
                 f"{anchor.label} ({anchor.actor_type_id}, actor_id={anchor.actor_id}) "
@@ -861,7 +1486,50 @@ def spawn_custom_walkers_near_anchors(
 
         spawned_walkers.append(spawned_walker)
 
+    cleanup_untracked_custom_walkers(world, spawned_walkers)
     return spawned_walkers
+
+
+def cleanup_untracked_custom_walkers(world, keep_spawned_walkers):
+    keep_walker_ids = {spawned_walker.walker.id for spawned_walker in keep_spawned_walkers}
+    actors = list(world.get_actors())
+    orphan_walkers = [
+        actor
+        for actor in actors
+        if actor.type_id in CUSTOM_WALKER_ORDER and actor.id not in keep_walker_ids
+    ]
+    orphan_walker_ids = {actor.id for actor in orphan_walkers}
+
+    orphan_controllers = []
+    for actor in actors:
+        if actor.type_id != "controller.ai.walker":
+            continue
+        parent = getattr(actor, "parent", None)
+        if parent is not None and parent.id in orphan_walker_ids:
+            orphan_controllers.append(actor)
+
+    for controller in orphan_controllers:
+        try:
+            controller.stop()
+        except RuntimeError:
+            pass
+        try:
+            controller.destroy()
+        except RuntimeError:
+            pass
+    for walker in orphan_walkers:
+        try:
+            walker.destroy()
+        except RuntimeError:
+            pass
+
+    if orphan_walkers or orphan_controllers:
+        # In synchronous CARLA worlds, destroy requests are applied on later ticks.
+        for _ in range(3):
+            try:
+                world.wait_for_tick(1.0)
+            except RuntimeError:
+                time.sleep(0.2)
 
 
 def orient_spawned_walkers_to_anchors(spawned_walkers):
@@ -902,10 +1570,20 @@ def find_invalid_anchor_spawned_walkers(
         if spawned_walker.anchor is None:
             continue
         anchor_error = distance_between(location, spawned_walker.anchor.location)
-        if anchor_error > max_anchor_error:
+        radius_profile = observer_radius_profile_for_anchor(spawned_walker.anchor)
+        effective_max_anchor_error = max(
+            float(max_anchor_error),
+            float(radius_profile["max_radius"]),
+        )
+        if anchor_error > effective_max_anchor_error:
             invalid.append((spawned_walker, f"anchor_error={anchor_error:.2f}"))
             continue
-        if not is_sidewalk_location(world, location, max_project_distance=2.0):
+        if not is_sidewalk_location(
+            world,
+            location,
+            max_project_distance=0.5,
+            strict=True,
+        ):
             invalid.append((spawned_walker, "not_on_sidewalk"))
     return invalid
 
@@ -992,7 +1670,8 @@ def send_walkers_to_anchor_destinations(world, spawned_walkers):
             avoid_locations=[current_location, *used_destinations],
             avoid_radius=8.0,
             require_sidewalk=True,
-            sidewalk_project_distance=2.0,
+            sidewalk_project_distance=0.5,
+            strict_sidewalk=True,
         )
         if destination is None:
             destination = pick_destination_away_from(
@@ -1074,3 +1753,7 @@ def destroy_spawned_walkers(spawned_walkers):
                 spawned_walker.walker.destroy()
             except RuntimeError:
                 pass
+        try:
+            time.sleep(0.05)
+        except RuntimeError:
+            pass

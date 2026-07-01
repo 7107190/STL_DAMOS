@@ -12,7 +12,7 @@ UPROJECT="$ROOT/Unreal/CarlaUE4/CarlaUE4.uproject"
 MAP="/Game/Carla/Maps/Town10HD_Opt"
 SCENIC_CARLA_MAP="Town10HD_Opt"
 SCENIC_XODR="$ROOT/Scenic/Maps/Town10HD_Opt.xodr"
-WEATHER="ClearNoon"
+WEATHER=""
 
 PORT=2000
 HEADLESS=0
@@ -20,7 +20,11 @@ OFFSCREEN=0
 RESTART=0
 SCENIC_TIME=8
 N_SCENARIOS=1
+RUNS=1
 SELECTED_SCENARIO=""
+STATIC_EGO=0
+EGO_START=""
+REALTIME_FACTOR=0
 MIN_MOVE_METERS=0.5
 OBSERVER_MODE=1
 MAX_OBSERVER_ANCHOR_DISTANCE=22.0
@@ -32,16 +36,24 @@ MAX_HUMANOIDS=0
 ATTACH_OBSERVER_CAMERAS=1
 OBSERVER_CAMERA_CONFIG="/home/vvu/vv/DAMOS/sensor_config.txt"
 SAVE_TRAJECTORY_REPORT=1
+SAVE_ACTOR_CAMERA_CAPTURES=0
 SAVE_OBSERVER_SCENE_CAPTURES=0
+EGO_FRONT_CAMERA_FAULT="none"
 CAPTURE_IMAGE_WIDTH=1280
 CAPTURE_IMAGE_HEIGHT=720
 CAPTURE_TIMEOUT_SECONDS=6
+VERIFY_S1_CROSSING_AUTOPILOT=0
+S1_VERIFY_PER_ANCHOR_SECONDS=15
+S1_VERIFY_TRIGGER_DISTANCE=15
+S1_VERIFY_PASS_MOVE_METERS=2.0
+S1_VERIFY_EGO_UPSTREAM_DISTANCE=12
 SERVER_WAIT_SECONDS=180
 SCENIC_TIMEOUT_SECONDS=60
 RESX=960
 RESY=540
 SERVER_PID=""
 SERVER_STATE="unknown"
+VERBOSE=0
 
 usage() {
   cat <<'EOF'
@@ -51,7 +63,13 @@ Options:
   --port N               CARLA RPC port (default: 2000)
   --scenic-time N        Scenic simulation time cap in seconds (default: 8)
   --n-scenarios N        N_SCENARIOS override for S_.scenic (default: 1)
+  --runs N               Repeat full Scenic/custom observer execution N times
+                          (default: 1). Each run samples scenarios again.
   --selected-scenario S  Force one abnormal scenario: S1..S9
+  --static-ego           Spawn the ego vehicle stopped for manual inspection
+  --ego-start X Y H      Spawn ego at fixed Scenic coordinate (X, Y) and
+                          heading H degrees instead of random lane placement
+  --realtime-factor N    Pace Scenic/CARLA ticks; 1.0 is approximate real time
   --observer-mode        Place custom walkers as static observers (default)
   --walker-mode          Route custom walkers and require movement
   --min-move-meters N    Walker-mode movement requirement in meters
@@ -71,6 +89,14 @@ Options:
   --observer-camera-config PATH
                           sensor_config.txt-style camera mount log
   --no-trajectory-report Skip PNG/JSON report generation
+  --save-actor-camera-captures
+                          Save one RGB frame from every ego/custom observer
+                          camera attached during the Scenic run
+  --ego-front-camera-fault MODE
+                          Apply a fault only to ego cam_front when actor camera
+                          captures are saved. MODE: none, random, blackout,
+                          blur, occlusion, color_failure, misalignment,
+                          shaking, freeze_cycle
   --save-observer-scene-captures
                           Save external observer-anchor and observer cam_front
                           RGB captures during the Scenic run
@@ -79,10 +105,23 @@ Options:
                           Capture image height (default: 720)
   --capture-timeout-seconds N
                           Seconds to wait for each camera frame (default: 6)
+  --verify-s1-crossing-autopilot
+                          For S1, move the Scenic ego upstream of each pedestrian,
+                          enable autopilot, and verify that crossing starts
+  --s1-verify-per-anchor-seconds N
+                          Seconds to observe each S1 pedestrian (default: 15)
+  --s1-verify-trigger-distance N
+                          Ego-pedestrian trigger distance threshold (default: 13)
+  --s1-verify-pass-move-meters N
+                          Required pedestrian movement for pass (default: 2.0)
+  --s1-verify-ego-upstream-distance N
+                          Place ego this many meters upstream before autopilot
+                          approach (default: 16)
   --scenic-timeout N     Timeout passed to Scenic's CARLA model (default: 60)
   --map-name NAME        CARLA map name for server and Scenic (default: Town10HD_Opt)
   --map-xodr PATH        Scenic .xodr path override
-  --weather NAME         Scenic weather override (default: ClearNoon)
+  --weather NAME         Scenic weather override. Omit for random S_.scenic weather.
+  --verbose              Print detailed anchor, observer, metric, and report logs
   --resx N               GUI width when not headless (default: 960)
   --resy N               GUI height when not headless (default: 540)
   --restart              Restart an existing matching Town10HD source server
@@ -207,8 +246,24 @@ while [[ $# -gt 0 ]]; do
       N_SCENARIOS="$2"
       shift 2
       ;;
+    --runs|--count)
+      RUNS="$2"
+      shift 2
+      ;;
     --selected-scenario)
       SELECTED_SCENARIO="$2"
+      shift 2
+      ;;
+    --static-ego)
+      STATIC_EGO=1
+      shift
+      ;;
+    --ego-start)
+      EGO_START="$2 $3 $4"
+      shift 4
+      ;;
+    --realtime-factor)
+      REALTIME_FACTOR="$2"
       shift 2
       ;;
     --min-move-meters)
@@ -263,6 +318,14 @@ while [[ $# -gt 0 ]]; do
       SAVE_TRAJECTORY_REPORT=0
       shift
       ;;
+    --save-actor-camera-captures)
+      SAVE_ACTOR_CAMERA_CAPTURES=1
+      shift
+      ;;
+    --ego-front-camera-fault)
+      EGO_FRONT_CAMERA_FAULT="$2"
+      shift 2
+      ;;
     --save-observer-scene-captures)
       SAVE_OBSERVER_SCENE_CAPTURES=1
       shift
@@ -277,6 +340,26 @@ while [[ $# -gt 0 ]]; do
       ;;
     --capture-timeout-seconds)
       CAPTURE_TIMEOUT_SECONDS="$2"
+      shift 2
+      ;;
+    --verify-s1-crossing-autopilot)
+      VERIFY_S1_CROSSING_AUTOPILOT=1
+      shift
+      ;;
+    --s1-verify-per-anchor-seconds)
+      S1_VERIFY_PER_ANCHOR_SECONDS="$2"
+      shift 2
+      ;;
+    --s1-verify-trigger-distance)
+      S1_VERIFY_TRIGGER_DISTANCE="$2"
+      shift 2
+      ;;
+    --s1-verify-pass-move-meters)
+      S1_VERIFY_PASS_MOVE_METERS="$2"
+      shift 2
+      ;;
+    --s1-verify-ego-upstream-distance)
+      S1_VERIFY_EGO_UPSTREAM_DISTANCE="$2"
       shift 2
       ;;
     --scenic-timeout)
@@ -295,6 +378,10 @@ while [[ $# -gt 0 ]]; do
     --weather)
       WEATHER="$2"
       shift 2
+      ;;
+    --verbose)
+      VERBOSE=1
+      shift
       ;;
     --resx)
       RESX="$2"
@@ -335,6 +422,11 @@ fi
 
 if [[ ! -x "$PYTHON_BIN" ]]; then
   echo "Missing Python interpreter: $PYTHON_BIN" >&2
+  exit 1
+fi
+
+if ! [[ "$RUNS" =~ ^[0-9]+$ ]] || [[ "$RUNS" -lt 1 ]]; then
+  echo "--runs must be a positive integer." >&2
   exit 1
 fi
 
@@ -436,6 +528,14 @@ if [[ "$SAVE_TRAJECTORY_REPORT" -eq 0 ]]; then
   report_args=(--no-trajectory-report)
 fi
 
+actor_camera_capture_args=()
+if [[ "$SAVE_ACTOR_CAMERA_CAPTURES" -eq 1 ]]; then
+  actor_camera_capture_args=(
+    --save-actor-camera-captures
+    --ego-front-camera-fault "$EGO_FRONT_CAMERA_FAULT"
+  )
+fi
+
 capture_args=()
 if [[ "$SAVE_OBSERVER_SCENE_CAPTURES" -eq 1 ]]; then
   capture_args=(
@@ -446,35 +546,86 @@ if [[ "$SAVE_OBSERVER_SCENE_CAPTURES" -eq 1 ]]; then
   )
 fi
 
+s1_verify_args=()
+if [[ "$VERIFY_S1_CROSSING_AUTOPILOT" -eq 1 ]]; then
+  s1_verify_args=(
+    --verify-s1-crossing-autopilot
+    --s1-verify-per-anchor-seconds "$S1_VERIFY_PER_ANCHOR_SECONDS"
+    --s1-verify-trigger-distance "$S1_VERIFY_TRIGGER_DISTANCE"
+    --s1-verify-pass-move-meters "$S1_VERIFY_PASS_MOVE_METERS"
+    --s1-verify-ego-upstream-distance "$S1_VERIFY_EGO_UPSTREAM_DISTANCE"
+  )
+fi
+
 selected_scenario_args=()
 if [[ -n "$SELECTED_SCENARIO" ]]; then
   selected_scenario_args=(--selected-scenario "$SELECTED_SCENARIO")
 fi
 
-set +e
-"$PYTHON_BIN" "$RUNNER" \
-  --host 127.0.0.1 \
-  --port "$PORT" \
-  --wait-for-server-seconds "$SERVER_WAIT_SECONDS" \
-  --scenic-time "$SCENIC_TIME" \
-  --n-scenarios "$N_SCENARIOS" \
-  "${selected_scenario_args[@]}" \
-  "${mode_args[@]}" \
-  --min-move-meters "$MIN_MOVE_METERS" \
-  --max-observer-anchor-distance "$MAX_OBSERVER_ANCHOR_DISTANCE" \
-  --max-observer-facing-error-degrees "$MAX_OBSERVER_FACING_ERROR_DEGREES" \
-  --observer-blueprint "$OBSERVER_BLUEPRINT" \
-  "${anchor_pair_args[@]}" \
-  --max-deliverybots "$MAX_DELIVERYBOTS" \
-  --max-humanoids "$MAX_HUMANOIDS" \
-  "${camera_args[@]}" \
-  --observer-camera-config "$OBSERVER_CAMERA_CONFIG" \
-  --scenic-timeout-seconds "$SCENIC_TIMEOUT_SECONDS" \
-  --carla-map "$SCENIC_CARLA_MAP" \
-  --map-xodr "$SCENIC_XODR" \
-  --weather "$WEATHER" \
-  "${report_args[@]}" \
-  "${capture_args[@]}"
-runner_status=$?
-set -e
+static_ego_args=()
+if [[ "$STATIC_EGO" -eq 1 ]]; then
+  static_ego_args=(--static-ego)
+fi
+
+ego_start_args=()
+if [[ -n "$EGO_START" ]]; then
+  read -r EGO_START_X EGO_START_Y EGO_START_HEADING <<<"$EGO_START"
+  ego_start_args=(--ego-start "$EGO_START_X" "$EGO_START_Y" "$EGO_START_HEADING")
+fi
+
+realtime_args=()
+if [[ "$REALTIME_FACTOR" != "0" ]]; then
+  realtime_args=(--realtime-factor "$REALTIME_FACTOR")
+fi
+
+weather_args=()
+if [[ -n "$WEATHER" ]]; then
+  weather_args=(--weather "$WEATHER")
+fi
+
+verbose_args=()
+if [[ "$VERBOSE" -eq 1 ]]; then
+  verbose_args=(--verbose)
+fi
+
+runner_status=0
+for run_index in $(seq 1 "$RUNS"); do
+  echo "=== DAMOS run $run_index/$RUNS: $N_SCENARIOS abnormal scenario(s) per Scenic execution ==="
+  set +e
+  "$PYTHON_BIN" "$RUNNER" \
+    --host 127.0.0.1 \
+    --port "$PORT" \
+    --wait-for-server-seconds "$SERVER_WAIT_SECONDS" \
+    --scenic-time "$SCENIC_TIME" \
+    --n-scenarios "$N_SCENARIOS" \
+    "${selected_scenario_args[@]}" \
+    "${static_ego_args[@]}" \
+    "${ego_start_args[@]}" \
+    "${realtime_args[@]}" \
+    "${mode_args[@]}" \
+    --min-move-meters "$MIN_MOVE_METERS" \
+    --max-observer-anchor-distance "$MAX_OBSERVER_ANCHOR_DISTANCE" \
+    --max-observer-facing-error-degrees "$MAX_OBSERVER_FACING_ERROR_DEGREES" \
+    --observer-blueprint "$OBSERVER_BLUEPRINT" \
+    "${anchor_pair_args[@]}" \
+    --max-deliverybots "$MAX_DELIVERYBOTS" \
+    --max-humanoids "$MAX_HUMANOIDS" \
+    "${camera_args[@]}" \
+    --observer-camera-config "$OBSERVER_CAMERA_CONFIG" \
+    --scenic-timeout-seconds "$SCENIC_TIMEOUT_SECONDS" \
+    --carla-map "$SCENIC_CARLA_MAP" \
+    --map-xodr "$SCENIC_XODR" \
+    "${weather_args[@]}" \
+    "${verbose_args[@]}" \
+    "${report_args[@]}" \
+    "${actor_camera_capture_args[@]}" \
+    "${capture_args[@]}" \
+    "${s1_verify_args[@]}"
+  runner_status=$?
+  set -e
+  if [[ "$runner_status" -ne 0 ]]; then
+    echo "DAMOS run $run_index/$RUNS failed with status $runner_status." >&2
+    break
+  fi
+done
 exit "$runner_status"
