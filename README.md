@@ -250,5 +250,5 @@ _DAMOS/scripts/run_scenic_custom_walkers_town10hd.sh \
 
 | 문서 | 내용 |
 |---|---|
-| `docs/usage.md` | 실행 명령과 코드 사용법 |
+| `docs/usage.md` | 환경 세팅, 실행 명령, 코드 사용법 |
 | `Carla-0.9.16-source/_DAMOS/README.md` | DAMOS runtime wrapper 상세 |
