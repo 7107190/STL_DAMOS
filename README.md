@@ -250,6 +250,7 @@ _DAMOS/scripts/run_scenic_custom_walkers_town10hd.sh \
 
 | 문서 | 내용 |
 |---|---|
+| `docs/usage.md` | 실행 명령과 코드 사용법 |
 | `docs/project_direction.md` | Notion 기반 프로젝트 방향 |
 | `docs/observer_mode.md` | custom walker observer mode 설계와 검증 |
 | `docs/vvu_workspace.md` | vvu 폴더 구조 |

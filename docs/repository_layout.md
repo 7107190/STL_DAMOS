@@ -11,7 +11,7 @@
 | `Carla-0.9.16-source/Scenic/Maps/` | Active asset | Scenic wrapper 실행에 필요한 OpenDRIVE maps |
 | `Carla-0.9.16-source/Unreal/CarlaUE4/Plugins/Carla/Source/Carla/Damos/` | Active source overlay | DAMOS custom walker Unreal code |
 | `UnrealEngine_4.26/README.md` | Placeholder | 외부 Unreal Engine dependency 위치 문서화 |
-| `docs/` | Active docs | 프로젝트 방향, observer mode, vvu workspace 문서 |
+| `docs/` | Active docs | 사용법, 프로젝트 방향, observer mode, vvu workspace 문서 |
 | `archive/` | Placeholder | GitHub에는 대용량/구식 실험 파일을 올리지 않고 archive 정책만 문서화 |
 
 `AGENTS.md`의 운영 규칙은 루트 `README.md`로 통합했습니다. 새 작업 기준 문서는 `README.md`입니다.
