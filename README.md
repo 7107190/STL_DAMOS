@@ -181,7 +181,7 @@ STL_DAMOS/
 | `Carla-0.9.16-source/Scenic/Maps` | `/home/vvu/vv/DAMOS/Carla-0.9.16-source/Scenic/Maps` | Scenic용 OpenDRIVE map |
 | `Carla-0.9.16-source/Unreal/.../Damos` | `/home/vvu/vv/DAMOS/Carla-0.9.16-source/Unreal/.../Damos` | Unreal custom walker source overlay |
 | `UnrealEngine_4.26/README.md` | `/home/vvu/vv/DAMOS/UnrealEngine_4.26` | 실제 UE 전체는 Git에서 제외하고 위치만 문서화 |
-| `docs/` | `/home/vvu/vv/DAMOS/docs` | 프로젝트 방향과 작업 문서 |
+| `docs/` | `/home/vvu/vv/DAMOS/docs` | 공유용 실행/사용법 문서 |
 
 ## 운영 규칙
 
@@ -251,8 +251,4 @@ _DAMOS/scripts/run_scenic_custom_walkers_town10hd.sh \
 | 문서 | 내용 |
 |---|---|
 | `docs/usage.md` | 실행 명령과 코드 사용법 |
-| `docs/project_direction.md` | Notion 기반 프로젝트 방향 |
-| `docs/observer_mode.md` | custom walker observer mode 설계와 검증 |
-| `docs/vvu_workspace.md` | vvu 폴더 구조 |
-| `docs/repository_layout.md` | GitHub 저장소 구조와 archive 정책 |
 | `Carla-0.9.16-source/_DAMOS/README.md` | DAMOS runtime wrapper 상세 |
