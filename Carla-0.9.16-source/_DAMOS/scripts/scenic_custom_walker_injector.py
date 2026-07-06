@@ -3448,7 +3448,7 @@ def save_lidar_scatter(path, points, *, title, compact=False):
     import matplotlib.pyplot as plt
 
     points = np.asarray(points, dtype=np.float32).reshape((-1, 4))
-    fig, ax = plt.subplots(figsize=(8.0, 8.0), dpi=180 if compact else 150)
+    fig, ax = plt.subplots(figsize=(8.0, 8.0), dpi=220 if compact else 150)
     ax.set_facecolor("#111111")
     fig.patch.set_facecolor("white")
     if not compact:
@@ -3468,9 +3468,9 @@ def save_lidar_scatter(path, points, *, title, compact=False):
             points[:, 0],
             points[:, 1],
             c=distance,
-            s=2.8 if compact else 1.0,
+            s=8.0 if compact else 1.0,
             cmap="viridis",
-            alpha=0.95 if compact else 0.85,
+            alpha=1.0 if compact else 0.85,
             linewidths=0,
         )
         limit = float(np.percentile(distance, 99)) + 5.0 if distance.size else 35.0
@@ -3496,7 +3496,7 @@ def save_lidar_scatter(path, points, *, title, compact=False):
             spine.set_visible(False)
     path.parent.mkdir(parents=True, exist_ok=True)
     if compact:
-        fig.subplots_adjust(left=0.01, right=0.99, top=0.99, bottom=0.01)
+        fig.subplots_adjust(left=0.0, right=1.0, top=1.0, bottom=0.0)
     else:
         fig.tight_layout()
     fig.savefig(path)
@@ -3554,6 +3554,20 @@ def fit_rgb_to_canvas(rgb, *, width, height, fill=(248, 248, 248)):
     return canvas
 
 
+def cover_rgb_to_canvas(rgb, *, width, height):
+    image = np.asarray(rgb, dtype=np.uint8)
+    if image.size == 0:
+        return np.zeros((int(height), int(width), 3), dtype=np.uint8)
+    src_height, src_width = image.shape[:2]
+    scale = max(float(width) / max(1, src_width), float(height) / max(1, src_height))
+    new_width = max(1, int(round(src_width * scale)))
+    new_height = max(1, int(round(src_height * scale)))
+    resized = cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_AREA)
+    x0 = max(0, (new_width - int(width)) // 2)
+    y0 = max(0, (new_height - int(height)) // 2)
+    return resized[y0 : y0 + int(height), x0 : x0 + int(width)]
+
+
 def make_fault_grid_tile(record, label, *, tile_width=560, tile_height=390):
     is_lidar_tile = str((record or {}).get("fault_type") or "").startswith("lidar_")
     header_height = 44 if is_lidar_tile else 54
@@ -3589,12 +3603,19 @@ def make_fault_grid_tile(record, label, *, tile_width=560, tile_height=390):
             cv2.LINE_AA,
         )
 
-    tile[header_height:, :, :] = fit_rgb_to_canvas(
-        image,
-        width=int(tile_width),
-        height=content_height,
-        fill=(18, 18, 18) if is_lidar_tile else (248, 248, 248),
-    )
+    if is_lidar_tile:
+        tile[header_height:, :, :] = cover_rgb_to_canvas(
+            image,
+            width=int(tile_width),
+            height=content_height,
+        )
+    else:
+        tile[header_height:, :, :] = fit_rgb_to_canvas(
+            image,
+            width=int(tile_width),
+            height=content_height,
+            fill=(248, 248, 248),
+        )
     return tile
 
 
