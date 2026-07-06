@@ -142,23 +142,32 @@ _DAMOS/scripts/run_scenic_custom_walkers_town10hd.sh \
 | `--offscreen` | GUI 없이 RGB capture 가능한 CARLA 서버 실행 |
 | `--static-ego` | 수동 확인용으로 ego 정지 |
 
-## 카메라 이상상황
+## 구현된 HW/SW 고장상황
 
-현재 통합된 camera fault는 ego `cam_front` 하나에만 적용됩니다. observer 카메라와 ego의 다른 카메라는 정상 이미지를 유지합니다.
+모든 고장상황은 ego 기준으로 적용하거나 시각화합니다. Camera fault는 ego `cam_front` 하나에만 적용되며, observer 카메라와 ego의 나머지 카메라는 정상 이미지를 유지합니다.
 
-| mode | 의미 |
+| 분류 | 고장상황 | 적용 대상 | 구현 방식 |
+|---|---|---|---|
+| HW-like | Camera blackout | ego front camera | 카메라 신호를 검정 화면으로 대체 |
+| HW-like | Camera degradation | ego front camera | blur, occlusion, color failure, shaking 등 영상 품질 저하 |
+| HW-like | Camera misalignment | ego front camera | camera transform 오정렬 |
+| HW-like | LiDAR noise | ego LiDAR | point cloud 좌표에 Gaussian noise 적용 |
+| HW-like | LiDAR dropout | ego LiDAR | point cloud 일부 제거 |
+| HW-like | LiDAR outlier | ego LiDAR | 실제 위치와 무관한 가짜 point 추가 |
+| HW/SW 경계 | Sensor delay | ego sensor stream | 현재 frame 대신 과거 frame 사용 |
+| SW-like | Module stop/freeze | ego module output | 입력은 갱신되지만 module output은 정지 |
+| SW-like | Stale perception output | ego module output | 오래된 output을 계속 사용하는 상태를 delay/freeze 리포트로 시각화 |
+
+Camera fault 선택값:
+
+| mode | 포함 항목 |
 |---|---|
-| `none` | fault 없음 |
-| `random` | visible fault 중 랜덤 선택 |
-| `blackout` | 검정 화면 |
-| `blur` | 강한 blur |
-| `occlusion` | 랜덤 검정 박스 가림 |
-| `color_failure` | RGB 채널 하나 제거 |
-| `misalignment` | ego front camera transform 오정렬 |
-| `shaking` | 이미지 흔들림 |
-| `freeze_cycle` | temporal fault용, 단일 still capture에서는 효과가 작음 |
+| `blackout` | Camera blackout |
+| `blur`, `occlusion`, `color_failure`, `shaking` | Camera degradation |
+| `misalignment` | Camera misalignment |
+| `random` | visible camera fault 중 랜덤 선택 |
 
-예전 `/home/vvu/vv/DAMOS/Camera` 폴더는 legacy demo 코드입니다. 현재 실행 경로는 `_DAMOS/scripts/scenic_custom_walker_injector.py`와 `_DAMOS/scripts/live_ego_front_camera.py`입니다.
+LiDAR noise/dropout/outlier, sensor delay, module stop/freeze, stale output 이미지는 `--save-ego-fault-report`로 저장합니다. 예전 `/home/vvu/vv/DAMOS/Camera` 폴더는 legacy demo 코드입니다. 현재 실행 경로는 `_DAMOS/scripts/scenic_custom_walker_injector.py`와 `_DAMOS/scripts/live_ego_front_camera.py`입니다.
 
 ## 저장소 구조
 
