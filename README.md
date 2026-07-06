@@ -137,7 +137,7 @@ _DAMOS/scripts/run_scenic_custom_walkers_town10hd.sh \
 | `--observer-blueprint random` | anchor마다 휴머노이드/배달로봇 중 랜덤 배치 |
 | `--max-anchor-pairs N` | 이름은 legacy지만 실제 의미는 최대 anchor N개 커버 |
 | `--save-actor-camera-captures` | ego와 observer의 카메라 이미지를 저장 |
-| `--save-ego-fault-report` | ego 기준 LiDAR noise, sensor delay, module stop 보고서 이미지 저장 |
+| `--save-ego-fault-report` | ego 기준 LiDAR noise, sensor delay, module stop 및 3x3 보고서 이미지 저장 |
 | `--ego-front-camera-fault random` | ego `cam_front`에만 랜덤 카메라 fault 적용 |
 | `--offscreen` | GUI 없이 RGB capture 가능한 CARLA 서버 실행 |
 | `--static-ego` | 수동 확인용으로 ego 정지 |
@@ -167,7 +167,7 @@ Camera fault 선택값:
 | `misalignment` | Camera misalignment |
 | `random` | visible camera fault 중 랜덤 선택 |
 
-LiDAR noise/dropout/outlier, sensor delay, module stop/freeze, stale output 이미지는 `--save-ego-fault-report`로 저장합니다. 예전 `/home/vvu/vv/DAMOS/Camera` 폴더는 legacy demo 코드입니다. 현재 실행 경로는 `_DAMOS/scripts/scenic_custom_walker_injector.py`와 `_DAMOS/scripts/live_ego_front_camera.py`입니다.
+LiDAR noise/dropout/outlier, sensor delay, module stop/freeze, stale output 이미지는 `--save-ego-fault-report`로 저장합니다. 9개 항목을 한 장에 모은 `ego_fault_report_3x3.png`도 같이 생성됩니다. 예전 `/home/vvu/vv/DAMOS/Camera` 폴더는 legacy demo 코드입니다. 현재 실행 경로는 `_DAMOS/scripts/scenic_custom_walker_injector.py`와 `_DAMOS/scripts/live_ego_front_camera.py`입니다.
 
 ## 저장소 구조
 

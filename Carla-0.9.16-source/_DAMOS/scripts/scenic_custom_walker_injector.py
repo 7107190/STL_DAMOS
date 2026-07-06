@@ -3310,6 +3310,106 @@ def add_fault_overlay(rgb, text):
     return overlay
 
 
+def make_camera_blackout_frame(rgb):
+    blackout = np.zeros_like(np.asarray(rgb, dtype=np.uint8))
+    if blackout.size:
+        cv2.putText(
+            blackout,
+            "NO CAMERA SIGNAL",
+            (max(24, blackout.shape[1] // 12), max(72, blackout.shape[0] // 2)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            1.1,
+            (180, 180, 180),
+            3,
+            cv2.LINE_AA,
+        )
+    return blackout
+
+
+def make_camera_degradation_frame(rgb):
+    degraded = np.asarray(rgb, dtype=np.uint8).copy()
+    if degraded.size == 0:
+        return degraded
+    degraded = cv2.GaussianBlur(degraded, (31, 31), 0)
+    degraded[:, :, 1] = (degraded[:, :, 1].astype(np.float32) * 0.45).astype(np.uint8)
+    height, width = degraded.shape[:2]
+    x1 = int(width * 0.56)
+    y1 = int(height * 0.16)
+    x2 = int(width * 0.86)
+    y2 = int(height * 0.54)
+    cv2.rectangle(degraded, (x1, y1), (x2, y2), (12, 12, 12), -1)
+    noise = np.random.default_rng().normal(0.0, 8.0, size=degraded.shape)
+    degraded = np.clip(degraded.astype(np.float32) + noise, 0, 255).astype(np.uint8)
+    return degraded
+
+
+def make_camera_misalignment_frame(rgb):
+    image = np.asarray(rgb, dtype=np.uint8)
+    if image.size == 0:
+        return image.copy()
+    height, width = image.shape[:2]
+    center = (width / 2.0, height / 2.0)
+    matrix = cv2.getRotationMatrix2D(center, -9.0, 1.0)
+    matrix[0, 2] += width * 0.12
+    matrix[1, 2] -= height * 0.05
+    return cv2.warpAffine(
+        image,
+        matrix,
+        (width, height),
+        flags=cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_CONSTANT,
+        borderValue=(0, 0, 0),
+    )
+
+
+def make_lidar_noise_points(points, *, noise_std=0.35):
+    points = np.asarray(points, dtype=np.float32).reshape((-1, 4))
+    if points.size == 0:
+        return points.copy(), {"gaussian_noise_std_m": noise_std, "input_points": 0}
+    noisy = points.copy()
+    noisy[:, 0:3] += np.random.default_rng().normal(
+        0.0,
+        float(noise_std),
+        size=noisy[:, 0:3].shape,
+    )
+    return noisy, {
+        "gaussian_noise_std_m": float(noise_std),
+        "input_points": int(points.shape[0]),
+        "output_points": int(noisy.shape[0]),
+    }
+
+
+def make_lidar_dropout_points(points, *, dropout_ratio=0.45):
+    points = np.asarray(points, dtype=np.float32).reshape((-1, 4))
+    if points.size == 0:
+        return points.copy(), {"dropout_ratio": dropout_ratio, "input_points": 0}
+    rng = np.random.default_rng()
+    keep_mask = rng.random(points.shape[0]) > float(dropout_ratio)
+    dropped = points[keep_mask].copy()
+    return dropped, {
+        "dropout_ratio": float(dropout_ratio),
+        "input_points": int(points.shape[0]),
+        "output_points": int(dropped.shape[0]),
+    }
+
+
+def make_lidar_outlier_points(points):
+    points = np.asarray(points, dtype=np.float32).reshape((-1, 4))
+    rng = np.random.default_rng()
+    outlier_count = 30 if points.size == 0 else min(180, max(45, points.shape[0] // 180))
+    outliers = np.empty((outlier_count, 4), dtype=np.float32)
+    outliers[:, 0] = rng.uniform(-65.0, 65.0, size=outlier_count)
+    outliers[:, 1] = rng.uniform(-65.0, 65.0, size=outlier_count)
+    outliers[:, 2] = rng.uniform(-1.0, 3.5, size=outlier_count)
+    outliers[:, 3] = rng.uniform(0.0, 1.0, size=outlier_count)
+    outlier_points = np.vstack([points, outliers]) if points.size else outliers
+    return outlier_points, {
+        "outlier_count": int(outlier_count),
+        "input_points": int(points.shape[0]),
+        "output_points": int(outlier_points.shape[0]),
+    }
+
+
 def make_noisy_lidar_points(points):
     points = np.asarray(points, dtype=np.float32)
     if points.size == 0:
@@ -3429,6 +3529,91 @@ def save_contact_sheet(path, image_records, *, title):
     return True
 
 
+def fit_rgb_to_canvas(rgb, *, width, height, fill=(248, 248, 248)):
+    image = np.asarray(rgb, dtype=np.uint8)
+    canvas = np.full((int(height), int(width), 3), fill, dtype=np.uint8)
+    if image.size == 0:
+        return canvas
+    src_height, src_width = image.shape[:2]
+    scale = min(float(width) / max(1, src_width), float(height) / max(1, src_height))
+    new_width = max(1, int(round(src_width * scale)))
+    new_height = max(1, int(round(src_height * scale)))
+    resized = cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_AREA)
+    x0 = (int(width) - new_width) // 2
+    y0 = (int(height) - new_height) // 2
+    canvas[y0 : y0 + new_height, x0 : x0 + new_width] = resized
+    return canvas
+
+
+def make_fault_grid_tile(record, label, *, tile_width=560, tile_height=390):
+    header_height = 54
+    content_height = int(tile_height) - header_height
+    tile = np.full((int(tile_height), int(tile_width), 3), 245, dtype=np.uint8)
+    tile[:header_height, :, :] = np.array([34, 38, 45], dtype=np.uint8)
+    cv2.putText(
+        tile,
+        label,
+        (18, 36),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.72,
+        (255, 255, 255),
+        2,
+        cv2.LINE_AA,
+    )
+
+    image = None
+    if record is not None and pathlib.Path(str(record.get("path", ""))).exists():
+        bgr = cv2.imread(str(record["path"]), cv2.IMREAD_COLOR)
+        if bgr is not None:
+            image = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+    if image is None:
+        image = np.full((content_height, int(tile_width), 3), 238, dtype=np.uint8)
+        cv2.putText(
+            image,
+            "capture missing",
+            (32, max(56, content_height // 2)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.9,
+            (80, 80, 80),
+            2,
+            cv2.LINE_AA,
+        )
+
+    tile[header_height:, :, :] = fit_rgb_to_canvas(
+        image,
+        width=int(tile_width),
+        height=content_height,
+    )
+    return tile
+
+
+def save_ego_fault_3x3_grid(path, records):
+    by_type = {
+        str(record.get("fault_type")): record
+        for record in records
+        if record.get("status") == "saved"
+    }
+    ordered_faults = (
+        ("camera_blackout", "1. Camera blackout"),
+        ("camera_degradation", "2. Camera degradation"),
+        ("camera_misalignment", "3. Camera misalignment"),
+        ("lidar_noise", "4. LiDAR noise"),
+        ("lidar_dropout", "5. LiDAR dropout"),
+        ("lidar_outlier", "6. LiDAR outlier"),
+        ("sensor_delay", "7. Sensor delay"),
+        ("module_stop", "8. Module stop/freeze"),
+        ("stale_perception_output", "9. Stale output"),
+    )
+    tiles = [
+        make_fault_grid_tile(by_type.get(fault_type), label)
+        for fault_type, label in ordered_faults
+    ]
+    rows = [np.hstack(tiles[index : index + 3]) for index in range(0, 9, 3)]
+    grid = np.vstack(rows)
+    save_rgb_array(path, grid)
+    return True
+
+
 def save_ego_lidar_noise_report(world, ego, capture_dir, config: ScenicCustomWalkerConfig):
     records = []
     lidar = None
@@ -3452,19 +3637,70 @@ def save_ego_lidar_noise_report(world, ego, capture_dir, config: ScenicCustomWal
             }
         )
 
-        noisy_points, noise_details = make_noisy_lidar_points(points)
-        noisy_path = capture_dir / "02_ego_lidar_noise_dropout_outliers.png"
+        noise_points, noise_details = make_lidar_noise_points(points)
+        noise_path = capture_dir / "fault_04_lidar_noise.png"
         save_lidar_scatter(
-            noisy_path,
-            noisy_points,
-            title="Ego LiDAR noise + dropout + outliers",
+            noise_path,
+            noise_points,
+            title="Ego LiDAR noise",
         )
         records.append(
             {
                 "fault_type": "lidar_noise",
-                "label": "Ego LiDAR noise/dropout/outliers",
-                "path": str(noisy_path),
+                "label": "LiDAR noise",
+                "path": str(noise_path),
                 "details": noise_details,
+                "status": "saved",
+            }
+        )
+
+        dropout_points, dropout_details = make_lidar_dropout_points(points)
+        dropout_path = capture_dir / "fault_05_lidar_dropout.png"
+        save_lidar_scatter(
+            dropout_path,
+            dropout_points,
+            title="Ego LiDAR dropout",
+        )
+        records.append(
+            {
+                "fault_type": "lidar_dropout",
+                "label": "LiDAR dropout",
+                "path": str(dropout_path),
+                "details": dropout_details,
+                "status": "saved",
+            }
+        )
+
+        outlier_points, outlier_details = make_lidar_outlier_points(points)
+        outlier_path = capture_dir / "fault_06_lidar_outlier.png"
+        save_lidar_scatter(
+            outlier_path,
+            outlier_points,
+            title="Ego LiDAR outlier",
+        )
+        records.append(
+            {
+                "fault_type": "lidar_outlier",
+                "label": "LiDAR outlier",
+                "path": str(outlier_path),
+                "details": outlier_details,
+                "status": "saved",
+            }
+        )
+
+        combined_points, combined_details = make_noisy_lidar_points(points)
+        combined_path = capture_dir / "02_ego_lidar_noise_dropout_outliers.png"
+        save_lidar_scatter(
+            combined_path,
+            combined_points,
+            title="Ego LiDAR noise + dropout + outliers",
+        )
+        records.append(
+            {
+                "fault_type": "lidar_noise_dropout_outliers",
+                "label": "Ego LiDAR noise/dropout/outliers",
+                "path": str(combined_path),
+                "details": combined_details,
                 "status": "saved",
             }
         )
@@ -3535,6 +3771,38 @@ def save_ego_camera_temporal_fault_report(
             }
         )
 
+        camera_fault_specs = (
+            (
+                "camera_blackout",
+                "Camera blackout",
+                capture_dir / "fault_01_camera_blackout.png",
+                make_camera_blackout_frame(current_rgb),
+            ),
+            (
+                "camera_degradation",
+                "Camera degradation",
+                capture_dir / "fault_02_camera_degradation.png",
+                make_camera_degradation_frame(current_rgb),
+            ),
+            (
+                "camera_misalignment",
+                "Camera misalignment",
+                capture_dir / "fault_03_camera_misalignment.png",
+                make_camera_misalignment_frame(current_rgb),
+            ),
+        )
+        for fault_type, label, path, image in camera_fault_specs:
+            save_rgb_array(path, image)
+            records.append(
+                {
+                    "fault_type": fault_type,
+                    "label": label,
+                    "path": str(path),
+                    "source_frame": int(current_frame_no),
+                    "status": "saved",
+                }
+            )
+
         delay_index = max(0, len(frames) - 6)
         delayed_frame_no, delayed_rgb = frames[delay_index]
         delay_path = capture_dir / "04_ego_sensor_delay_5_frames.png"
@@ -3571,6 +3839,26 @@ def save_ego_camera_temporal_fault_report(
                 "label": "Ego module stop/freeze",
                 "path": str(module_path),
                 "frozen_frame": int(freeze_frame_no),
+                "current_frame": int(current_frame_no),
+                "status": "saved",
+            }
+        )
+
+        stale_output = add_fault_overlay(delayed_rgb, "STALE OUTPUT: OLD PERCEPTION")
+        stale_path = capture_dir / "fault_09_stale_perception_output.png"
+        save_rgb_panel(
+            stale_path,
+            (
+                (f"Current input frame {current_frame_no}", current_rgb),
+                (f"Stale output frame {delayed_frame_no}", stale_output),
+            ),
+        )
+        records.append(
+            {
+                "fault_type": "stale_perception_output",
+                "label": "Stale perception output",
+                "path": str(stale_path),
+                "stale_frame": int(delayed_frame_no),
                 "current_frame": int(current_frame_no),
                 "status": "saved",
             }
@@ -3624,6 +3912,18 @@ def save_ego_fault_report(
             config,
         )
     )
+
+    grid_3x3_path = capture_dir / "ego_fault_report_3x3.png"
+    grid_3x3_saved = save_ego_fault_3x3_grid(grid_3x3_path, records)
+    if grid_3x3_saved:
+        records.append(
+            {
+                "fault_type": "fault_3x3_grid",
+                "label": "Ego HW/SW fault 3x3 grid",
+                "path": str(grid_3x3_path),
+                "status": "saved",
+            }
+        )
 
     contact_path = capture_dir / "ego_fault_report_contact_sheet.png"
     contact_saved = save_contact_sheet(

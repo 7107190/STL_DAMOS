@@ -235,6 +235,7 @@ Camera fault 사용 예시:
 | `02_ego_lidar_noise_dropout_outliers.png` | Gaussian noise, dropout, outlier가 섞인 LiDAR |
 | `04_ego_sensor_delay_5_frames.png` | 현재 ego front RGB와 지연된 frame 비교 |
 | `05_ego_module_stop_freeze.png` | 입력은 갱신되지만 module output이 정지되거나 오래된 output을 유지하는 상태 |
+| `ego_fault_report_3x3.png` | 9개 구현 고장상황을 3x3으로 모은 보고서용 이미지 |
 | `ego_fault_report_contact_sheet.png` | 위 이미지를 보고서용으로 모은 요약 이미지 |
 
 ## 실시간 화면 확인
