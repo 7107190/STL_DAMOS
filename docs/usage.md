@@ -102,6 +102,7 @@ _DAMOS/scripts/run_scenic_custom_walkers_town10hd.sh \
   --scenic-time 30 \
   --realtime-factor 1.0 \
   --save-actor-camera-captures \
+  --save-ego-fault-report \
   --ego-front-camera-fault random \
   --no-trajectory-report
 ```
@@ -116,6 +117,12 @@ actor camera capture 폴더 예시는 다음과 같습니다.
 
 ```text
 _DAMOS/reports/actor_camera_captures_Town10HD_Opt_S5-1_port2620_YYYYMMDD-HHMMSS/
+```
+
+ego fault report 폴더 예시는 다음과 같습니다.
+
+```text
+_DAMOS/reports/ego_fault_report_Town10HD_Opt_S5-1_port2620_YYYYMMDD-HHMMSS/
 ```
 
 ## 특정 시나리오 실행
@@ -201,6 +208,24 @@ camera fault는 ego 차량의 `cam_front` 하나에만 적용합니다. observer
 --save-actor-camera-captures \
 --ego-front-camera-fault random
 ```
+
+## Ego 기준 센서/모듈 이상상황
+
+보고서용 이미지는 ego 기준으로 생성합니다. 다음 옵션을 추가하면 ego에 임시 LiDAR/front RGB 센서를 붙여 LiDAR noise, sensor delay, module stop 이미지를 저장합니다.
+
+```bash
+--save-ego-fault-report
+```
+
+저장되는 대표 파일:
+
+| 파일 | 의미 |
+|---|---|
+| `01_ego_lidar_clean.png` | ego-local LiDAR 정상 point cloud |
+| `02_ego_lidar_noise_dropout_outliers.png` | Gaussian noise, dropout, outlier가 섞인 LiDAR |
+| `04_ego_sensor_delay_5_frames.png` | 현재 ego front RGB와 지연된 frame 비교 |
+| `05_ego_module_stop_freeze.png` | 입력은 갱신되지만 module output이 정지된 상태 |
+| `ego_fault_report_contact_sheet.png` | 위 이미지를 보고서용으로 모은 요약 이미지 |
 
 ## 실시간 화면 확인
 
@@ -376,6 +401,7 @@ _DAMOS/scripts/run_scenic_custom_walkers_town10hd.sh \
   --scenic-time 20 \
   --realtime-factor 1.0 \
   --save-actor-camera-captures \
+  --save-ego-fault-report \
   --no-trajectory-report
 ```
 
@@ -387,6 +413,7 @@ _DAMOS/scripts/run_scenic_custom_walkers_town10hd.sh \
 | plot/report/capture | `_DAMOS/reports` |
 | actor camera capture | `_DAMOS/reports/actor_camera_captures_*` |
 | observer scene capture | `_DAMOS/reports/observer_scene_captures_*` |
+| ego fault report | `_DAMOS/reports/ego_fault_report_*` |
 
 `logs`와 `reports`는 GitHub에 올리지 않습니다. 공유가 필요하면 필요한 이미지나 JSON만 따로 압축해서 전달합니다.
 

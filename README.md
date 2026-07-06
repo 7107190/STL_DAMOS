@@ -114,6 +114,7 @@ _DAMOS/scripts/run_scenic_custom_walkers_town10hd.sh \
   --scenic-time 30 \
   --realtime-factor 1.0 \
   --save-actor-camera-captures \
+  --save-ego-fault-report \
   --ego-front-camera-fault random \
   --no-trajectory-report
 ```
@@ -136,6 +137,7 @@ _DAMOS/scripts/run_scenic_custom_walkers_town10hd.sh \
 | `--observer-blueprint random` | anchor마다 휴머노이드/배달로봇 중 랜덤 배치 |
 | `--max-anchor-pairs N` | 이름은 legacy지만 실제 의미는 최대 anchor N개 커버 |
 | `--save-actor-camera-captures` | ego와 observer의 카메라 이미지를 저장 |
+| `--save-ego-fault-report` | ego 기준 LiDAR noise, sensor delay, module stop 보고서 이미지 저장 |
 | `--ego-front-camera-fault random` | ego `cam_front`에만 랜덤 카메라 fault 적용 |
 | `--offscreen` | GUI 없이 RGB capture 가능한 CARLA 서버 실행 |
 | `--static-ego` | 수동 확인용으로 ego 정지 |

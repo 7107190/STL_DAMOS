@@ -143,6 +143,7 @@ class ScenicCustomWalkerConfig:
     save_trajectory_report: bool = True
     save_actor_camera_captures: bool = False
     save_observer_scene_captures: bool = False
+    save_ego_fault_report: bool = False
     ego_front_camera_fault: str = "none"
     capture_image_width: int = 1280
     capture_image_height: int = 720
@@ -356,6 +357,14 @@ def add_integration_args(parser: argparse.ArgumentParser) -> None:
             "sample one visible still-image fault for this run."
         ),
     )
+    parser.add_argument(
+        "--save-ego-fault-report",
+        action="store_true",
+        help=(
+            "Save ego-centric report images for LiDAR noise, RGB sensor delay, "
+            "and module stop/freeze demonstrations."
+        ),
+    )
     parser.add_argument("--capture-image-width", type=int, default=1280)
     parser.add_argument("--capture-image-height", type=int, default=720)
     parser.add_argument("--capture-timeout-seconds", type=float, default=6.0)
@@ -413,6 +422,7 @@ def config_from_args(args: argparse.Namespace) -> ScenicCustomWalkerConfig:
         save_trajectory_report=not args.no_trajectory_report,
         save_actor_camera_captures=args.save_actor_camera_captures,
         save_observer_scene_captures=args.save_observer_scene_captures,
+        save_ego_fault_report=args.save_ego_fault_report,
         ego_front_camera_fault=args.ego_front_camera_fault,
         capture_image_width=args.capture_image_width,
         capture_image_height=args.capture_image_height,
@@ -2771,18 +2781,28 @@ def is_actor_anchor(anchor: CustomWalkerAnchor) -> bool:
     )
 
 
-def save_processed_rgb_frame(image, path, image_processor):
+def carla_rgb_image_to_array(image):
     array = np.frombuffer(image.raw_data, dtype=np.uint8)
     array = array.reshape((image.height, image.width, 4))
-    rgb = array[:, :, :3][:, :, ::-1].copy()
+    return array[:, :, :3][:, :, ::-1].copy()
+
+
+def save_rgb_array(path, rgb):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    rgb = np.asarray(rgb, dtype=np.uint8)
+    if not cv2.imwrite(str(path), rgb[:, :, ::-1]):
+        raise RuntimeError(f"failed to write RGB image: {path}")
+
+
+def save_processed_rgb_frame(image, path, image_processor):
+    rgb = carla_rgb_image_to_array(image)
     processed = image_processor(rgb)
     processed = np.asarray(processed, dtype=np.uint8)
     if processed.shape != rgb.shape:
         raise RuntimeError(
             f"processed RGB frame has invalid shape {processed.shape}; expected {rgb.shape}"
         )
-    if not cv2.imwrite(str(path), processed[:, :, ::-1]):
-        raise RuntimeError(f"failed to write processed RGB frame: {path}")
+    save_rgb_array(path, processed)
 
 
 def resolve_ego_front_camera_fault(requested_fault: str) -> str:
@@ -3101,6 +3121,541 @@ def save_actor_camera_captures(
     )
 
     return tuple(captures)
+
+
+def capture_rgb_sensor_sequence(
+    world,
+    sensor,
+    *,
+    frame_count,
+    timeout_seconds,
+    warmup_frames=2,
+):
+    frames = queue.Queue(maxsize=max(4, int(frame_count) + int(warmup_frames) + 2))
+    skipped_frames = 0
+    captured = []
+
+    def on_image(image):
+        try:
+            frames.put_nowait((int(image.frame), carla_rgb_image_to_array(image)))
+        except queue.Full:
+            pass
+
+    sensor.listen(on_image)
+    deadline = time.time() + float(timeout_seconds)
+    try:
+        while time.time() < deadline and len(captured) < int(frame_count):
+            try:
+                frame = frames.get(timeout=0.25)
+            except queue.Empty:
+                try:
+                    world.wait_for_tick(0.5)
+                except RuntimeError:
+                    time.sleep(0.1)
+                continue
+            if skipped_frames < int(warmup_frames):
+                skipped_frames += 1
+                continue
+            captured.append(frame)
+    finally:
+        try:
+            sensor.stop()
+        except RuntimeError:
+            pass
+    return tuple(captured)
+
+
+def capture_lidar_sensor_frame(world, sensor, *, timeout_seconds, warmup_frames=1):
+    frames = queue.Queue(maxsize=4)
+    skipped_frames = 0
+
+    def on_lidar(point_cloud):
+        try:
+            points = np.frombuffer(point_cloud.raw_data, dtype=np.float32).reshape((-1, 4))
+            frames.put_nowait(points.copy())
+        except queue.Full:
+            pass
+
+    sensor.listen(on_lidar)
+    deadline = time.time() + float(timeout_seconds)
+    try:
+        while time.time() < deadline:
+            try:
+                points = frames.get(timeout=0.25)
+            except queue.Empty:
+                try:
+                    world.wait_for_tick(0.5)
+                except RuntimeError:
+                    time.sleep(0.1)
+                continue
+            if skipped_frames < int(warmup_frames):
+                skipped_frames += 1
+                continue
+            return points
+    finally:
+        try:
+            sensor.stop()
+        except RuntimeError:
+            pass
+    return np.empty((0, 4), dtype=np.float32)
+
+
+def configure_lidar_blueprint(world):
+    blueprint = world.get_blueprint_library().find("sensor.lidar.ray_cast")
+    attributes = {
+        "channels": "32",
+        "range": "70",
+        "points_per_second": "64000",
+        "rotation_frequency": "10",
+        "upper_fov": "12",
+        "lower_fov": "-30",
+        "sensor_tick": "0.05",
+    }
+    for key, value in attributes.items():
+        if blueprint.has_attribute(key):
+            blueprint.set_attribute(key, value)
+    return blueprint
+
+
+def spawn_temp_ego_front_camera(world, ego, config: ScenicCustomWalkerConfig):
+    blueprint = configure_rgb_camera_blueprint(
+        world,
+        width=config.capture_image_width,
+        height=config.capture_image_height,
+        fov=90,
+    )
+    transform = carla.Transform(
+        carla.Location(x=1.60, y=0.0, z=1.70),
+        carla.Rotation(pitch=-5.0, yaw=0.0, roll=0.0),
+    )
+    return world.spawn_actor(
+        blueprint,
+        transform,
+        attach_to=ego,
+        attachment_type=carla.AttachmentType.Rigid,
+    )
+
+
+def spawn_temp_ego_lidar(world, ego):
+    transform = carla.Transform(
+        carla.Location(x=0.0, y=0.0, z=2.10),
+        carla.Rotation(pitch=0.0, yaw=0.0, roll=0.0),
+    )
+    return world.spawn_actor(
+        configure_lidar_blueprint(world),
+        transform,
+        attach_to=ego,
+        attachment_type=carla.AttachmentType.Rigid,
+    )
+
+
+def resize_rgb_for_panel(rgb, *, width=640):
+    rgb = np.asarray(rgb, dtype=np.uint8)
+    if rgb.size == 0:
+        return np.zeros((360, int(width), 3), dtype=np.uint8)
+    height = max(1, int(round(rgb.shape[0] * (float(width) / max(1, rgb.shape[1])))))
+    return cv2.resize(rgb, (int(width), height), interpolation=cv2.INTER_AREA)
+
+
+def make_labeled_panel(rgb, label, *, width=640, accent=(40, 40, 40)):
+    image = resize_rgb_for_panel(rgb, width=width)
+    header = np.full((56, image.shape[1], 3), accent, dtype=np.uint8)
+    cv2.putText(
+        header,
+        str(label)[:72],
+        (18, 36),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.72,
+        (255, 255, 255),
+        2,
+        cv2.LINE_AA,
+    )
+    return np.vstack([header, image])
+
+
+def save_rgb_panel(path, panels):
+    rendered = [make_labeled_panel(rgb, label) for label, rgb in panels]
+    if not rendered:
+        return False
+    max_height = max(panel.shape[0] for panel in rendered)
+    padded = []
+    for panel in rendered:
+        if panel.shape[0] < max_height:
+            pad = np.full(
+                (max_height - panel.shape[0], panel.shape[1], 3),
+                245,
+                dtype=np.uint8,
+            )
+            panel = np.vstack([panel, pad])
+        padded.append(panel)
+    save_rgb_array(path, np.hstack(padded))
+    return True
+
+
+def add_fault_overlay(rgb, text):
+    overlay = np.asarray(rgb, dtype=np.uint8).copy()
+    if overlay.size == 0:
+        return overlay
+    cv2.rectangle(overlay, (0, 0), (overlay.shape[1], 64), (0, 0, 170), -1)
+    cv2.putText(
+        overlay,
+        text,
+        (24, 42),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        1.05,
+        (255, 255, 255),
+        3,
+        cv2.LINE_AA,
+    )
+    return overlay
+
+
+def make_noisy_lidar_points(points):
+    points = np.asarray(points, dtype=np.float32)
+    if points.size == 0:
+        return points.reshape((0, 4)), {
+            "gaussian_noise_std_m": 0.35,
+            "dropout_ratio": 0.25,
+            "outlier_count": 0,
+        }
+
+    rng = np.random.default_rng()
+    keep_mask = rng.random(points.shape[0]) > 0.25
+    noisy = points[keep_mask].copy()
+    if noisy.size:
+        noisy[:, 0:3] += rng.normal(0.0, 0.35, size=noisy[:, 0:3].shape)
+
+    outlier_count = min(160, max(30, points.shape[0] // 250))
+    outliers = np.empty((outlier_count, 4), dtype=np.float32)
+    outliers[:, 0] = rng.uniform(-45.0, 45.0, size=outlier_count)
+    outliers[:, 1] = rng.uniform(-45.0, 45.0, size=outlier_count)
+    outliers[:, 2] = rng.uniform(-1.0, 3.0, size=outlier_count)
+    outliers[:, 3] = rng.uniform(0.0, 1.0, size=outlier_count)
+    noisy = np.vstack([noisy, outliers])
+    return noisy, {
+        "gaussian_noise_std_m": 0.35,
+        "dropout_ratio": 0.25,
+        "outlier_count": int(outlier_count),
+        "input_points": int(points.shape[0]),
+        "output_points": int(noisy.shape[0]),
+    }
+
+
+def save_lidar_scatter(path, points, *, title):
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    points = np.asarray(points, dtype=np.float32).reshape((-1, 4))
+    fig, ax = plt.subplots(figsize=(8.0, 8.0), dpi=150)
+    ax.set_facecolor("#111111")
+    fig.patch.set_facecolor("white")
+    ax.set_title(title)
+    ax.set_xlabel("ego-local x forward (m)")
+    ax.set_ylabel("ego-local y left/right (m)")
+    ax.axhline(0.0, color="#999999", linewidth=0.7, alpha=0.6)
+    ax.axvline(0.0, color="#999999", linewidth=0.7, alpha=0.6)
+    if points.size:
+        if points.shape[0] > 30000:
+            sample_index = np.random.default_rng().choice(
+                points.shape[0], 30000, replace=False
+            )
+            points = points[sample_index]
+        distance = np.linalg.norm(points[:, 0:2], axis=1)
+        ax.scatter(
+            points[:, 0],
+            points[:, 1],
+            c=distance,
+            s=1.0,
+            cmap="viridis",
+            alpha=0.85,
+            linewidths=0,
+        )
+        limit = float(np.percentile(distance, 99)) + 5.0 if distance.size else 35.0
+        limit = max(20.0, min(75.0, limit))
+    else:
+        ax.text(
+            0.5,
+            0.5,
+            "No LiDAR points captured",
+            transform=ax.transAxes,
+            ha="center",
+            va="center",
+        )
+        limit = 35.0
+    ax.set_xlim(-limit, limit)
+    ax.set_ylim(-limit, limit)
+    ax.set_aspect("equal", adjustable="box")
+    ax.grid(color="#555555", alpha=0.25)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig.tight_layout()
+    fig.savefig(path)
+    plt.close(fig)
+
+
+def save_contact_sheet(path, image_records, *, title):
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    existing_records = [
+        record for record in image_records if pathlib.Path(record.get("path", "")).exists()
+    ]
+    if not existing_records:
+        return False
+
+    columns = 2
+    rows = int(math.ceil(len(existing_records) / float(columns)))
+    fig, axes = plt.subplots(rows, columns, figsize=(13.0, 5.2 * rows), dpi=150)
+    axes = np.asarray(axes).reshape(-1)
+    for axis, record in zip(axes, existing_records):
+        image = cv2.imread(str(record["path"]), cv2.IMREAD_COLOR)
+        if image is None:
+            axis.axis("off")
+            continue
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        axis.imshow(image)
+        axis.set_title(str(record.get("label") or pathlib.Path(record["path"]).stem))
+        axis.axis("off")
+    for axis in axes[len(existing_records) :]:
+        axis.axis("off")
+    fig.suptitle(title, fontsize=18)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig.tight_layout(rect=(0, 0, 1, 0.96))
+    fig.savefig(path)
+    plt.close(fig)
+    return True
+
+
+def save_ego_lidar_noise_report(world, ego, capture_dir, config: ScenicCustomWalkerConfig):
+    records = []
+    lidar = None
+    try:
+        lidar = spawn_temp_ego_lidar(world, ego)
+        points = capture_lidar_sensor_frame(
+            world,
+            lidar,
+            timeout_seconds=max(config.capture_timeout_seconds, 8.0),
+            warmup_frames=1,
+        )
+        clean_path = capture_dir / "01_ego_lidar_clean.png"
+        save_lidar_scatter(clean_path, points, title="Ego LiDAR clean point cloud")
+        records.append(
+            {
+                "fault_type": "lidar_clean",
+                "label": "Ego LiDAR clean",
+                "path": str(clean_path),
+                "point_count": int(points.shape[0]),
+                "status": "saved",
+            }
+        )
+
+        noisy_points, noise_details = make_noisy_lidar_points(points)
+        noisy_path = capture_dir / "02_ego_lidar_noise_dropout_outliers.png"
+        save_lidar_scatter(
+            noisy_path,
+            noisy_points,
+            title="Ego LiDAR noise + dropout + outliers",
+        )
+        records.append(
+            {
+                "fault_type": "lidar_noise",
+                "label": "Ego LiDAR noise/dropout/outliers",
+                "path": str(noisy_path),
+                "details": noise_details,
+                "status": "saved",
+            }
+        )
+    except RuntimeError as exc:
+        records.append(
+            {
+                "fault_type": "lidar_noise",
+                "status": "error",
+                "error": str(exc),
+            }
+        )
+    finally:
+        if lidar is not None:
+            try:
+                lidar.destroy()
+            except RuntimeError:
+                pass
+    return tuple(records)
+
+
+def save_ego_camera_temporal_fault_report(
+    world,
+    ego,
+    actor_camera_attachments,
+    capture_dir,
+    config: ScenicCustomWalkerConfig,
+):
+    records = []
+    temp_camera = None
+    front_sensor = find_observer_camera_sensor(
+        world,
+        actor_camera_attachments,
+        "ego",
+        "cam_front",
+    )
+    try:
+        if front_sensor is None:
+            temp_camera = spawn_temp_ego_front_camera(world, ego, config)
+            front_sensor = temp_camera
+
+        frames = capture_rgb_sensor_sequence(
+            world,
+            front_sensor,
+            frame_count=9,
+            timeout_seconds=max(config.capture_timeout_seconds, 8.0),
+            warmup_frames=2,
+        )
+        if not frames:
+            records.append(
+                {
+                    "fault_type": "ego_rgb_temporal",
+                    "status": "timeout",
+                    "error": "no ego front camera frames captured",
+                }
+            )
+            return tuple(records)
+
+        current_frame_no, current_rgb = frames[-1]
+        normal_path = capture_dir / "03_ego_front_camera_current.png"
+        save_rgb_array(normal_path, current_rgb)
+        records.append(
+            {
+                "fault_type": "ego_front_camera_current",
+                "label": "Ego front RGB current",
+                "path": str(normal_path),
+                "frame": int(current_frame_no),
+                "status": "saved",
+            }
+        )
+
+        delay_index = max(0, len(frames) - 6)
+        delayed_frame_no, delayed_rgb = frames[delay_index]
+        delay_path = capture_dir / "04_ego_sensor_delay_5_frames.png"
+        save_rgb_panel(
+            delay_path,
+            (
+                (f"Delayed output frame {delayed_frame_no}", delayed_rgb),
+                (f"Current input frame {current_frame_no}", current_rgb),
+            ),
+        )
+        records.append(
+            {
+                "fault_type": "sensor_delay",
+                "label": "Ego RGB sensor delay",
+                "path": str(delay_path),
+                "delay_frames": int(current_frame_no - delayed_frame_no),
+                "status": "saved",
+            }
+        )
+
+        freeze_frame_no, freeze_rgb = frames[min(2, len(frames) - 1)]
+        stopped_output = add_fault_overlay(freeze_rgb, "MODULE STOP: FROZEN OUTPUT")
+        module_path = capture_dir / "05_ego_module_stop_freeze.png"
+        save_rgb_panel(
+            module_path,
+            (
+                (f"Live input frame {current_frame_no}", current_rgb),
+                (f"Frozen module output frame {freeze_frame_no}", stopped_output),
+            ),
+        )
+        records.append(
+            {
+                "fault_type": "module_stop",
+                "label": "Ego module stop/freeze",
+                "path": str(module_path),
+                "frozen_frame": int(freeze_frame_no),
+                "current_frame": int(current_frame_no),
+                "status": "saved",
+            }
+        )
+    except RuntimeError as exc:
+        records.append(
+            {
+                "fault_type": "ego_rgb_temporal",
+                "status": "error",
+                "error": str(exc),
+            }
+        )
+    finally:
+        if temp_camera is not None:
+            try:
+                temp_camera.destroy()
+            except RuntimeError:
+                pass
+    return tuple(records)
+
+
+def save_ego_fault_report(
+    world,
+    ego,
+    actor_camera_attachments,
+    config: ScenicCustomWalkerConfig,
+    *,
+    scenario_labels=(),
+):
+    config.report_dir.mkdir(parents=True, exist_ok=True)
+    map_name = safe_map_name(world).split("/")[-1]
+    scenario_fragment = "base"
+    if scenario_labels:
+        scenario_fragment = sanitize_filename_fragment("_".join(scenario_labels[:4]))
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    capture_dir = config.report_dir / (
+        f"ego_fault_report_{sanitize_filename_fragment(map_name)}_"
+        f"{scenario_fragment}_port{config.port}_{stamp}"
+    )
+    capture_dir.mkdir(parents=True, exist_ok=True)
+
+    wait_for_capture_settle(world, ticks=3)
+    records = []
+    records.extend(save_ego_lidar_noise_report(world, ego, capture_dir, config))
+    records.extend(
+        save_ego_camera_temporal_fault_report(
+            world,
+            ego,
+            actor_camera_attachments,
+            capture_dir,
+            config,
+        )
+    )
+
+    contact_path = capture_dir / "ego_fault_report_contact_sheet.png"
+    contact_saved = save_contact_sheet(
+        contact_path,
+        records,
+        title="DAMOS ego-centric sensor/module faults",
+    )
+    if contact_saved:
+        records.append(
+            {
+                "fault_type": "contact_sheet",
+                "label": "Ego fault report contact sheet",
+                "path": str(contact_path),
+                "status": "saved",
+            }
+        )
+
+    manifest_path = capture_dir / "ego_fault_report.json"
+    manifest = {
+        "map_name": map_name,
+        "port": config.port,
+        "scenario_labels": list(scenario_labels or ()),
+        "ego_actor_id": int(ego.id),
+        "ego_type_id": str(ego.type_id),
+        "capture_dir": str(capture_dir),
+        "records": records,
+    }
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    return tuple(records)
 
 
 def save_immediate_topdown_overview_capture(
@@ -6255,6 +6810,27 @@ def run_scenic_custom_walker_integration(
                 )
         else:
             logger("Ego/custom observer camera attachment disabled for this run.")
+
+        if config.save_ego_fault_report:
+            ego_fault_report_captures = save_ego_fault_report(
+                world,
+                ego,
+                observer_camera_attachments,
+                config,
+                scenario_labels=resolved_scenario_labels,
+            )
+            observer_scene_captures = tuple(
+                [*observer_scene_captures, *ego_fault_report_captures]
+            )
+            saved_count = sum(
+                1
+                for capture in ego_fault_report_captures
+                if capture.get("status") == "saved"
+            )
+            logger(
+                f"Saved {saved_count}/{len(ego_fault_report_captures)} "
+                "ego-centric sensor/module fault report artifacts."
+            )
 
         tracked_actors.update(
             (label, actor_id)

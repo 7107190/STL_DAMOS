@@ -38,6 +38,7 @@ OBSERVER_CAMERA_CONFIG="/home/vvu/vv/DAMOS/sensor_config.txt"
 SAVE_TRAJECTORY_REPORT=1
 SAVE_ACTOR_CAMERA_CAPTURES=0
 SAVE_OBSERVER_SCENE_CAPTURES=0
+SAVE_EGO_FAULT_REPORT=0
 EGO_FRONT_CAMERA_FAULT="none"
 CAPTURE_IMAGE_WIDTH=1280
 CAPTURE_IMAGE_HEIGHT=720
@@ -97,6 +98,8 @@ Options:
                           captures are saved. MODE: none, random, blackout,
                           blur, occlusion, color_failure, misalignment,
                           shaking, freeze_cycle
+  --save-ego-fault-report Save ego-centric report images for LiDAR noise,
+                          RGB sensor delay, and module stop/freeze
   --save-observer-scene-captures
                           Save external observer-anchor and observer cam_front
                           RGB captures during the Scenic run
@@ -330,6 +333,10 @@ while [[ $# -gt 0 ]]; do
       SAVE_OBSERVER_SCENE_CAPTURES=1
       shift
       ;;
+    --save-ego-fault-report)
+      SAVE_EGO_FAULT_REPORT=1
+      shift
+      ;;
     --capture-image-width)
       CAPTURE_IMAGE_WIDTH="$2"
       shift 2
@@ -536,14 +543,23 @@ if [[ "$SAVE_ACTOR_CAMERA_CAPTURES" -eq 1 ]]; then
   )
 fi
 
+ego_fault_report_args=()
+if [[ "$SAVE_EGO_FAULT_REPORT" -eq 1 ]]; then
+  ego_fault_report_args=(--save-ego-fault-report)
+fi
+
 capture_args=()
-if [[ "$SAVE_OBSERVER_SCENE_CAPTURES" -eq 1 ]]; then
+if [[ "$SAVE_ACTOR_CAMERA_CAPTURES" -eq 1 || "$SAVE_OBSERVER_SCENE_CAPTURES" -eq 1 || "$SAVE_EGO_FAULT_REPORT" -eq 1 ]]; then
   capture_args=(
-    --save-observer-scene-captures
     --capture-image-width "$CAPTURE_IMAGE_WIDTH"
     --capture-image-height "$CAPTURE_IMAGE_HEIGHT"
     --capture-timeout-seconds "$CAPTURE_TIMEOUT_SECONDS"
   )
+fi
+
+observer_scene_capture_args=()
+if [[ "$SAVE_OBSERVER_SCENE_CAPTURES" -eq 1 ]]; then
+  observer_scene_capture_args=(--save-observer-scene-captures)
 fi
 
 s1_verify_args=()
@@ -619,6 +635,8 @@ for run_index in $(seq 1 "$RUNS"); do
     "${verbose_args[@]}" \
     "${report_args[@]}" \
     "${actor_camera_capture_args[@]}" \
+    "${ego_fault_report_args[@]}" \
+    "${observer_scene_capture_args[@]}" \
     "${capture_args[@]}" \
     "${s1_verify_args[@]}"
   runner_status=$?
