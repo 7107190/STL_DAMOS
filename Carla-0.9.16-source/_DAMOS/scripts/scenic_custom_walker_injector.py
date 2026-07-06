@@ -3569,10 +3569,12 @@ def cover_rgb_to_canvas(rgb, *, width, height):
 
 
 def make_fault_grid_tile(record, label, *, tile_width=560, tile_height=390):
-    is_lidar_tile = str((record or {}).get("fault_type") or "").startswith("lidar_")
+    fault_type = str((record or {}).get("fault_type") or "")
+    is_lidar_tile = fault_type.startswith("lidar_")
+    use_cover = is_lidar_tile or fault_type.startswith("camera_")
     header_height = 44 if is_lidar_tile else 54
     content_height = int(tile_height) - header_height
-    tile = np.full((int(tile_height), int(tile_width), 3), 245, dtype=np.uint8)
+    tile = np.full((int(tile_height), int(tile_width), 3), 18, dtype=np.uint8)
     tile[:header_height, :, :] = np.array([34, 38, 45], dtype=np.uint8)
     cv2.putText(
         tile,
@@ -3591,19 +3593,19 @@ def make_fault_grid_tile(record, label, *, tile_width=560, tile_height=390):
         if bgr is not None:
             image = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
     if image is None:
-        image = np.full((content_height, int(tile_width), 3), 238, dtype=np.uint8)
+        image = np.full((content_height, int(tile_width), 3), 18, dtype=np.uint8)
         cv2.putText(
             image,
             "capture missing",
             (32, max(56, content_height // 2)),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.9,
-            (80, 80, 80),
+            (180, 180, 180),
             2,
             cv2.LINE_AA,
         )
 
-    if is_lidar_tile:
+    if use_cover:
         tile[header_height:, :, :] = cover_rgb_to_canvas(
             image,
             width=int(tile_width),
@@ -3614,7 +3616,7 @@ def make_fault_grid_tile(record, label, *, tile_width=560, tile_height=390):
             image,
             width=int(tile_width),
             height=content_height,
-            fill=(248, 248, 248),
+            fill=(18, 18, 18),
         )
     return tile
 
