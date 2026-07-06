@@ -3441,19 +3441,20 @@ def make_noisy_lidar_points(points):
     }
 
 
-def save_lidar_scatter(path, points, *, title):
+def save_lidar_scatter(path, points, *, title, compact=False):
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
     points = np.asarray(points, dtype=np.float32).reshape((-1, 4))
-    fig, ax = plt.subplots(figsize=(8.0, 8.0), dpi=150)
+    fig, ax = plt.subplots(figsize=(8.0, 8.0), dpi=180 if compact else 150)
     ax.set_facecolor("#111111")
     fig.patch.set_facecolor("white")
-    ax.set_title(title)
-    ax.set_xlabel("ego-local x forward (m)")
-    ax.set_ylabel("ego-local y left/right (m)")
+    if not compact:
+        ax.set_title(title)
+        ax.set_xlabel("ego-local x forward (m)")
+        ax.set_ylabel("ego-local y left/right (m)")
     ax.axhline(0.0, color="#999999", linewidth=0.7, alpha=0.6)
     ax.axvline(0.0, color="#999999", linewidth=0.7, alpha=0.6)
     if points.size:
@@ -3467,9 +3468,9 @@ def save_lidar_scatter(path, points, *, title):
             points[:, 0],
             points[:, 1],
             c=distance,
-            s=1.0,
+            s=2.8 if compact else 1.0,
             cmap="viridis",
-            alpha=0.85,
+            alpha=0.95 if compact else 0.85,
             linewidths=0,
         )
         limit = float(np.percentile(distance, 99)) + 5.0 if distance.size else 35.0
@@ -3487,9 +3488,17 @@ def save_lidar_scatter(path, points, *, title):
     ax.set_xlim(-limit, limit)
     ax.set_ylim(-limit, limit)
     ax.set_aspect("equal", adjustable="box")
-    ax.grid(color="#555555", alpha=0.25)
+    ax.grid(color="#555555", alpha=0.22)
+    if compact:
+        ax.set_xticks([])
+        ax.set_yticks([])
+        for spine in ax.spines.values():
+            spine.set_visible(False)
     path.parent.mkdir(parents=True, exist_ok=True)
-    fig.tight_layout()
+    if compact:
+        fig.subplots_adjust(left=0.01, right=0.99, top=0.99, bottom=0.01)
+    else:
+        fig.tight_layout()
     fig.savefig(path)
     plt.close(fig)
 
@@ -3546,16 +3555,17 @@ def fit_rgb_to_canvas(rgb, *, width, height, fill=(248, 248, 248)):
 
 
 def make_fault_grid_tile(record, label, *, tile_width=560, tile_height=390):
-    header_height = 54
+    is_lidar_tile = str((record or {}).get("fault_type") or "").startswith("lidar_")
+    header_height = 44 if is_lidar_tile else 54
     content_height = int(tile_height) - header_height
     tile = np.full((int(tile_height), int(tile_width), 3), 245, dtype=np.uint8)
     tile[:header_height, :, :] = np.array([34, 38, 45], dtype=np.uint8)
     cv2.putText(
         tile,
         label,
-        (18, 36),
+        (18, 31 if is_lidar_tile else 36),
         cv2.FONT_HERSHEY_SIMPLEX,
-        0.72,
+        0.68 if is_lidar_tile else 0.72,
         (255, 255, 255),
         2,
         cv2.LINE_AA,
@@ -3583,6 +3593,7 @@ def make_fault_grid_tile(record, label, *, tile_width=560, tile_height=390):
         image,
         width=int(tile_width),
         height=content_height,
+        fill=(18, 18, 18) if is_lidar_tile else (248, 248, 248),
     )
     return tile
 
@@ -3643,6 +3654,7 @@ def save_ego_lidar_noise_report(world, ego, capture_dir, config: ScenicCustomWal
             noise_path,
             noise_points,
             title="Ego LiDAR noise",
+            compact=True,
         )
         records.append(
             {
@@ -3660,6 +3672,7 @@ def save_ego_lidar_noise_report(world, ego, capture_dir, config: ScenicCustomWal
             dropout_path,
             dropout_points,
             title="Ego LiDAR dropout",
+            compact=True,
         )
         records.append(
             {
@@ -3677,6 +3690,7 @@ def save_ego_lidar_noise_report(world, ego, capture_dir, config: ScenicCustomWal
             outlier_path,
             outlier_points,
             title="Ego LiDAR outlier",
+            compact=True,
         )
         records.append(
             {
