@@ -1,0 +1,99 @@
+<mxfile host="app.diagrams.net">
+  <diagram name="페이지-1" id="O7tNClynarjxLDXm-lyv">
+    <mxGraphModel dx="1414" dy="760" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="en5ksE_7AKuQDgJ3_27K-5" edge="1" parent="1" source="en5ksE_7AKuQDgJ3_27K-1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="en5ksE_7AKuQDgJ3_27K-2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="en5ksE_7AKuQDgJ3_27K-7" edge="1" parent="1" source="en5ksE_7AKuQDgJ3_27K-1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" target="en5ksE_7AKuQDgJ3_27K-3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="en5ksE_7AKuQDgJ3_27K-8" edge="1" parent="1" source="en5ksE_7AKuQDgJ3_27K-1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="en5ksE_7AKuQDgJ3_27K-4">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="en5ksE_7AKuQDgJ3_27K-1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="시나리오 생성&lt;div&gt;(Carla+Scenic+UE)&lt;/div&gt;" vertex="1">
+          <mxGeometry height="40" width="120" x="360" y="160" as="geometry" />
+        </mxCell>
+        <mxCell id="en5ksE_7AKuQDgJ3_27K-12" edge="1" parent="1" source="en5ksE_7AKuQDgJ3_27K-2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="420" y="320" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="en5ksE_7AKuQDgJ3_27K-19" edge="1" parent="1" source="en5ksE_7AKuQDgJ3_27K-2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="en5ksE_7AKuQDgJ3_27K-18">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="en5ksE_7AKuQDgJ3_27K-20" edge="1" parent="1" source="en5ksE_7AKuQDgJ3_27K-2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" target="en5ksE_7AKuQDgJ3_27K-16">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="en5ksE_7AKuQDgJ3_27K-2" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="&lt;div&gt;시스템 2&lt;/div&gt;객체 인지" vertex="1">
+          <mxGeometry height="40" width="120" x="360" y="240" as="geometry" />
+        </mxCell>
+        <mxCell id="en5ksE_7AKuQDgJ3_27K-11" edge="1" parent="1" source="en5ksE_7AKuQDgJ3_27K-3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="260" y="300" />
+              <mxPoint x="420" y="300" />
+            </Array>
+            <mxPoint x="420" y="320" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="en5ksE_7AKuQDgJ3_27K-3" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="&lt;div&gt;시스템 1&lt;br&gt;&lt;/div&gt;객체 인지" vertex="1">
+          <mxGeometry height="40" width="120" x="220" y="240" as="geometry" />
+        </mxCell>
+        <mxCell id="en5ksE_7AKuQDgJ3_27K-13" edge="1" parent="1" source="en5ksE_7AKuQDgJ3_27K-4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="580" y="300" />
+              <mxPoint x="420" y="300" />
+            </Array>
+            <mxPoint x="420" y="320" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="en5ksE_7AKuQDgJ3_27K-4" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="&lt;div&gt;시스템 3&lt;br&gt;&lt;/div&gt;객체 인지" vertex="1">
+          <mxGeometry height="40" width="120" x="500" y="240" as="geometry" />
+        </mxCell>
+        <mxCell id="en5ksE_7AKuQDgJ3_27K-10" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontColor=#3399FF;" value="&lt;font style=&quot;font-size: 10px;&quot;&gt;센서 데이터&lt;/font&gt;" vertex="1">
+          <mxGeometry height="20" width="60" x="420" y="200" as="geometry" />
+        </mxCell>
+        <mxCell id="en5ksE_7AKuQDgJ3_27K-15" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontColor=#3399FF;" value="&lt;font size=&quot;1&quot;&gt;탈중앙화 협력 네트워크&lt;/font&gt;" vertex="1">
+          <mxGeometry height="20" width="100" x="420" y="280" as="geometry" />
+        </mxCell>
+        <mxCell id="en5ksE_7AKuQDgJ3_27K-26" edge="1" parent="1" source="en5ksE_7AKuQDgJ3_27K-16" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="en5ksE_7AKuQDgJ3_27K-23">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="en5ksE_7AKuQDgJ3_27K-16" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="&lt;div&gt;시스템 3&lt;/div&gt;정보 융합" vertex="1">
+          <mxGeometry height="40" width="120" x="500" y="320" as="geometry" />
+        </mxCell>
+        <mxCell id="en5ksE_7AKuQDgJ3_27K-22" edge="1" parent="1" source="en5ksE_7AKuQDgJ3_27K-17" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" target="en5ksE_7AKuQDgJ3_27K-21">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="en5ksE_7AKuQDgJ3_27K-17" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="&lt;div&gt;시스템 2&lt;/div&gt;정보 융합" vertex="1">
+          <mxGeometry height="40" width="120" x="360" y="320" as="geometry" />
+        </mxCell>
+        <mxCell id="en5ksE_7AKuQDgJ3_27K-25" edge="1" parent="1" source="en5ksE_7AKuQDgJ3_27K-18" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="en5ksE_7AKuQDgJ3_27K-24">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="en5ksE_7AKuQDgJ3_27K-18" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="&lt;div&gt;시스템 1&lt;/div&gt;정보 융합" vertex="1">
+          <mxGeometry height="40" width="120" x="220" y="320" as="geometry" />
+        </mxCell>
+        <mxCell id="en5ksE_7AKuQDgJ3_27K-21" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="&lt;div&gt;이상상황 극복&lt;/div&gt;&lt;div&gt;협력 인지 결과&lt;/div&gt;" vertex="1">
+          <mxGeometry height="40" width="120" x="360" y="390" as="geometry" />
+        </mxCell>
+        <mxCell id="en5ksE_7AKuQDgJ3_27K-23" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="&lt;div&gt;이상상황 극복&lt;/div&gt;&lt;div&gt;협력 인지 결과&lt;/div&gt;" vertex="1">
+          <mxGeometry height="40" width="120" x="500" y="390" as="geometry" />
+        </mxCell>
+        <mxCell id="en5ksE_7AKuQDgJ3_27K-24" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="&lt;div&gt;이상상황 극복&lt;/div&gt;&lt;div&gt;협력 인지 결과&lt;/div&gt;" vertex="1">
+          <mxGeometry height="40" width="120" x="220" y="390" as="geometry" />
+        </mxCell>
+        <mxCell id="en5ksE_7AKuQDgJ3_27K-27" parent="1" style="strokeWidth=2;html=1;shape=mxgraph.flowchart.annotation_2;align=left;labelPosition=right;pointerEvents=1;rotation=-180;" value="" vertex="1">
+          <mxGeometry height="210" width="28.64" x="631.36" y="220" as="geometry" />
+        </mxCell>
+        <mxCell id="en5ksE_7AKuQDgJ3_27K-29" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;" value="𝑡 ≤ 18𝑠" vertex="1">
+          <mxGeometry height="30" width="60" x="660" y="310" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
