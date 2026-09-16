@@ -25,6 +25,40 @@
 | 4 | 실행 명령 실행 | Python/Scenic/CARLA package 설치 |
 | 5 | reports 확인 | `STL_DAMOS` overlay를 CARLA tree에 복사 |
 
+## 성능지표 2번 검증 준비
+
+2026-09-16 확인 기준, 김기웅의 핵심 달성 항목은 **개별 모빌리티 시스템 시뮬레이션 처리 속도**이며, 1단계(2025~2026) 목표는 **18초 이내**, 평가 비중은 **25%**입니다. 2차년도는 공인 시험성적(확인)서 평가가 기재되어 있습니다. 출처: [Notion 목표 & 평가](https://www.notion.so/3337d69010ae804a8f87c6417232a9d1).
+
+현재 명령은 시나리오·observer 실행과 센서·고장 보고서 생성용입니다. 협력 처리 파이프라인의 18초 합격 여부를 자동 판정하는 시험 명령은 아직 제공하지 않습니다.
+
+| 구분 | 의미 |
+|---|---|
+| `--scenic-time 20` | Scenic 실행 시간 제한; 성능지표의 측정값 아님 |
+| `--realtime-factor 1.0` | 시뮬레이션 진행 속도 조절; 18초 달성 증빙 아님 |
+| `--runs 5` | 시나리오 실행 반복; 공식 평가 반복 횟수로 확정된 값 아님 |
+| `--save-ego-fault-report` | 고장 효과 설명 이미지 생성; 처리시간·실제 모듈 정지 시험 아님 |
+| 18초 처리시간 | 합의된 시작·종료 구간의 실제 경과시간으로 계측 필요 |
+
+원문의 평가 환경은 모빌리티 간 협력·데이터 공유와 이동 정보, 환경 센서 데이터, 경로 최적화 정보의 공유 확인을 포함합니다. 아래 세부 조건은 원문에 명시되어 있지 않아 평가 담당자와 확정해야 합니다.
+
+| 확정 항목 | 정해야 할 내용 |
+|---|---|
+| 처리 단위 | 개별 모빌리티의 어떤 입력·출력 작업 1회를 측정할지 |
+| 시작·종료 지점 | 입력 준비·전달·수신·결과 생성 중 정확한 계측 위치 |
+| 포함 범위 | 프레임 수집, 전처리, 추론, 통신, 융합, 초기화, 파일 저장의 포함 여부 |
+| 실행 조건 | 모빌리티 종류·대수, 센서 설정, 시나리오, 날씨, 고장 조건 |
+| 합격 기준 | 반복 횟수, 워밍업 처리, 평균·최댓값 등 판정 통계, 실패·시간초과 처리 |
+
+다음은 **후속 구현 계획**이며, 현재 시험 기능으로 구현·확정된 기준은 아닙니다.
+
+1. 메인 동기화 루프에서 모빌리티별 6방향 RGB의 과거 6프레임 버퍼 구성. 보고서용 임시 프레임 수집과 구분.
+2. 예측·ZKP 통신·융합 담당자와 메시지 규격 합의. actor ID, frame ID, 입력·출력 대응 정보를 포함해 실제 연동 확인.
+3. 확정된 시작·종료 지점에 단조 시계 기반 계측 추가. 동일 계측 호스트에서 전체 경과시간을 측정하고 단계별 시간을 별도 기록; 여러 PC의 시각 차이를 보정 없이 차감하지 않음.
+4. 정상·고장 조건의 반복별 처리시간, 성공·실패·시간초과 기록. CPU/GPU, 소프트웨어 버전·커밋, 모빌리티·센서 수, 시나리오·seed·날씨, 고장 설정도 함께 보존.
+5. 합의된 통계로 18초 목표 판정 후 시험 증빙 정리. 전체 처리 구간을 생략하거나 실패한 실행을 누락해 달성으로 표시하지 않음.
+
+최신 [DAMOS 역할 분담](https://www.notion.so/32d7d69010ae805b8b88c6175f5d9898)에서 룰 기반 브레이크/직진 제어는 취소선 처리되어 있으므로 현재 필수 후속 작업에 포함하지 않습니다. 점유 예측·융합·통신 알고리즘은 담당 팀원의 모듈과 연동합니다.
+
 ## vvu에서 바로 실행하기
 
 vvu에 접속합니다.
@@ -186,21 +220,21 @@ observer 종류를 고정하려면 다음 옵션을 사용합니다.
 --observer-blueprint random
 ```
 
-## 구현된 HW/SW 고장상황
+## HW/SW 고장상황 구현 범위
 
-현재 구현된 고장상황은 모두 ego 기준입니다. Camera fault는 ego 차량의 `cam_front` 하나에만 적용하고, observer camera와 ego의 나머지 camera는 정상으로 유지합니다.
+현재 고장상황은 모두 ego 기준으로 적용하거나 시각화합니다. Camera fault 선택 기능은 ego 차량의 `cam_front` 하나에만 적용하고, observer camera와 ego의 나머지 camera는 정상으로 유지합니다. 아래 9개 항목의 보고서 생성은 구현되어 있지만, 실제 협력 처리 파이프라인에서의 고장 주입·복구 검증은 완료되지 않았습니다.
 
 | 분류 | 고장상황 | 적용 대상 | 구현 방식 |
 |---|---|---|---|
 | HW-like | Camera blackout | ego front camera | 카메라 신호를 검정 화면으로 대체 |
 | HW-like | Camera degradation | ego front camera | blur, occlusion, color failure, shaking 등 영상 품질 저하 |
-| HW-like | Camera misalignment | ego front camera | camera transform 오정렬 |
-| HW-like | LiDAR noise | ego LiDAR | point cloud 좌표에 Gaussian noise 적용 |
-| HW-like | LiDAR dropout | ego LiDAR | point cloud 일부 제거 |
-| HW-like | LiDAR outlier | ego LiDAR | 실제 위치와 무관한 가짜 point 추가 |
-| HW/SW 경계 | Sensor delay | ego sensor stream | 현재 frame 대신 과거 frame 사용 |
-| SW-like | Module stop/freeze | ego module output | 입력은 갱신되지만 module output은 정지 |
-| SW-like | Stale perception output | ego module output | 오래된 output을 계속 사용하는 상태를 delay/freeze 리포트로 시각화 |
+| HW-like | Camera misalignment | ego front camera | 카메라 fault 선택 지원; 3x3 보고서는 캡처 영상의 회전·이동으로 재현 |
+| HW-like | LiDAR noise | 캡처한 ego LiDAR | point cloud 좌표에 Gaussian noise를 적용한 보고서 |
+| HW-like | LiDAR dropout | 캡처한 ego LiDAR | point cloud 일부를 제거한 보고서 |
+| HW-like | LiDAR outlier | 캡처한 ego LiDAR | 가짜 point를 추가한 보고서 |
+| HW/SW 경계 | Sensor delay | 수집한 ego RGB 프레임 | 과거·현재 프레임 비교로 지연 출력 재현 |
+| SW-like | Module stop/freeze | ego RGB 기반 모의 출력 | 고정된 과거 프레임으로 출력 정지 재현; 실제 모듈 중지 아님 |
+| SW-like | Stale perception output | ego RGB 기반 모의 출력 | 오래된 프레임으로 출력 노후화 재현; 실제 인식 결과 연동 아님 |
 
 Camera fault 선택값:
 
@@ -221,7 +255,9 @@ Camera fault 사용 예시:
 
 ## Ego fault report 저장
 
-보고서용 이미지는 ego 기준으로 생성합니다. 다음 옵션을 추가하면 ego에 임시 LiDAR/front RGB 센서를 붙여 LiDAR noise, LiDAR dropout, LiDAR outlier, sensor delay, module stop/freeze, stale output 이미지를 저장합니다.
+보고서용 이미지는 ego 기준으로 생성합니다. 다음 옵션을 추가하면 ego의 임시 LiDAR와 전방 RGB 센서(기존 센서가 없으면 임시 생성)에서 데이터를 수집해 고장 효과 이미지를 저장합니다.
+
+카메라 3종은 수집 영상 변형, LiDAR 3종은 수집 point cloud 변형, 지연·정지·오래된 출력은 수집한 과거 프레임 비교로 재현합니다. 실제 인식 모듈을 중지하거나 제어 입력을 지연시키는 시험은 아닙니다. 3x3 이미지 생성 성공은 고장 복구 또는 18초 처리 성능의 달성 증빙이 아닙니다.
 
 ```bash
 --save-ego-fault-report
@@ -234,8 +270,9 @@ Camera fault 사용 예시:
 | `01_ego_lidar_clean.png` | ego-local LiDAR 정상 point cloud |
 | `02_ego_lidar_noise_dropout_outliers.png` | Gaussian noise, dropout, outlier가 섞인 LiDAR |
 | `04_ego_sensor_delay_5_frames.png` | 현재 ego front RGB와 지연된 frame 비교 |
-| `05_ego_module_stop_freeze.png` | 입력은 갱신되지만 module output이 정지되거나 오래된 output을 유지하는 상태 |
-| `ego_fault_report_3x3.png` | 9개 구현 고장상황을 3x3으로 모은 보고서용 이미지 |
+| `05_ego_module_stop_freeze.png` | 현재 입력과 고정된 과거 프레임을 비교한 모듈 출력 정지 재현 |
+| `fault_09_stale_perception_output.png` | 현재 입력과 오래된 프레임을 비교한 출력 노후화 재현 |
+| `ego_fault_report_3x3.png` | 고장 효과 9종의 3x3 보고서 이미지; LiDAR 확대·흰 여백 제거 반영 |
 | `ego_fault_report_contact_sheet.png` | 위 이미지를 보고서용으로 모은 요약 이미지 |
 
 ## 실시간 화면 확인
