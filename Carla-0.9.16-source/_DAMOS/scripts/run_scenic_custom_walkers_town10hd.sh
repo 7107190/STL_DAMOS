@@ -39,6 +39,12 @@ SAVE_TRAJECTORY_REPORT=1
 SAVE_ACTOR_CAMERA_CAPTURES=0
 SAVE_OBSERVER_SCENE_CAPTURES=0
 SAVE_EGO_FAULT_REPORT=0
+LIVE_EGO_SHARING=0
+SHARING_ROUNDS=5
+SHARING_RADIUS_M=60
+SHARING_TIMEOUT_SECONDS=18
+SHARING_DURATION_SECONDS=0
+SAVE_SHARING_VIDEO=0
 EGO_FRONT_CAMERA_FAULT="none"
 CAPTURE_IMAGE_WIDTH=1280
 CAPTURE_IMAGE_HEIGHT=720
@@ -100,6 +106,18 @@ Options:
                           shaking, freeze_cycle
   --save-ego-fault-report Save ego-centric report images for LiDAR noise,
                           RGB sensor delay, and module stop/freeze
+  --live-ego-sharing     Front-only live image sharing, real Groth16, ego timings.
+                          Detector is not connected. Extends Scenic lifetime
+                          until sharing rounds finish; no full 18s pass verdict.
+  --sharing-rounds N     Exchange attempt limit (default: 5); idle does not count.
+                          0 runs for --sharing-duration-seconds.
+  --sharing-radius-m N   Ego-neighbour radius (default: 60; 0: all observers).
+                          Observer-to-observer exchange is always disabled.
+  --sharing-timeout-seconds N
+                          Per-round deadline (default: 18)
+  --sharing-duration-seconds N
+                          Wall-time session limit; stops between exchanges.
+  --save-sharing-video   Save live ego front + map + verification status MP4.
   --save-observer-scene-captures
                           Save external observer-anchor and observer cam_front
                           RGB captures during the Scenic run
@@ -337,6 +355,30 @@ while [[ $# -gt 0 ]]; do
       SAVE_EGO_FAULT_REPORT=1
       shift
       ;;
+    --live-ego-sharing)
+      LIVE_EGO_SHARING=1
+      shift
+      ;;
+    --sharing-rounds)
+      SHARING_ROUNDS="$2"
+      shift 2
+      ;;
+    --sharing-radius-m)
+      SHARING_RADIUS_M="$2"
+      shift 2
+      ;;
+    --sharing-timeout-seconds)
+      SHARING_TIMEOUT_SECONDS="$2"
+      shift 2
+      ;;
+    --sharing-duration-seconds)
+      SHARING_DURATION_SECONDS="$2"
+      shift 2
+      ;;
+    --save-sharing-video)
+      SAVE_SHARING_VIDEO=1
+      shift
+      ;;
     --capture-image-width)
       CAPTURE_IMAGE_WIDTH="$2"
       shift 2
@@ -421,6 +463,28 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+sharing_args=()
+if [[ "$SAVE_SHARING_VIDEO" -eq 1 && "$LIVE_EGO_SHARING" -ne 1 ]]; then
+  echo "--save-sharing-video requires --live-ego-sharing." >&2
+  exit 1
+fi
+if [[ "$LIVE_EGO_SHARING" -eq 1 ]]; then
+  if [[ "$HEADLESS" -eq 1 || "$ATTACH_OBSERVER_CAMERAS" -ne 1 || "$REALTIME_FACTOR" == "0" ]]; then
+    echo "Live sharing needs RGB rendering, cameras and --realtime-factor 1.0; use --offscreen, not --headless." >&2
+    exit 1
+  fi
+  if [[ "$EGO_FRONT_CAMERA_FAULT" != "none" || "$SAVE_EGO_FAULT_REPORT" -eq 1 || "$SAVE_ACTOR_CAMERA_CAPTURES" -eq 1 || "$SAVE_OBSERVER_SCENE_CAPTURES" -eq 1 || "$VERIFY_S1_CROSSING_AUTOPILOT" -eq 1 ]]; then
+    echo "Live sharing saves front images itself. Run other capture/fault modes separately." >&2
+    exit 1
+  fi
+  sharing_args=(--live-ego-sharing --sharing-rounds "$SHARING_ROUNDS"
+    --sharing-radius-m "$SHARING_RADIUS_M" --sharing-timeout-seconds "$SHARING_TIMEOUT_SECONDS"
+    --sharing-duration-seconds "$SHARING_DURATION_SECONDS")
+  if [[ "$SAVE_SHARING_VIDEO" -eq 1 ]]; then
+    sharing_args+=(--save-sharing-video)
+  fi
+fi
 
 if [[ ! -f "$ENV_SH" ]]; then
   echo "Missing environment script: $ENV_SH" >&2
@@ -608,7 +672,7 @@ runner_status=0
 for run_index in $(seq 1 "$RUNS"); do
   echo "=== DAMOS run $run_index/$RUNS: $N_SCENARIOS abnormal scenario(s) per Scenic execution ==="
   set +e
-  "$PYTHON_BIN" "$RUNNER" \
+  "$PYTHON_BIN" -u "$RUNNER" \
     --host 127.0.0.1 \
     --port "$PORT" \
     --wait-for-server-seconds "$SERVER_WAIT_SECONDS" \
@@ -636,6 +700,7 @@ for run_index in $(seq 1 "$RUNS"); do
     "${report_args[@]}" \
     "${actor_camera_capture_args[@]}" \
     "${ego_fault_report_args[@]}" \
+    "${sharing_args[@]}" \
     "${observer_scene_capture_args[@]}" \
     "${capture_args[@]}" \
     "${s1_verify_args[@]}"

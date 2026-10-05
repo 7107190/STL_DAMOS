@@ -40,6 +40,7 @@ UnrealEngine_4.26/*
 !UnrealEngine_4.26/README.md
 
 # Python/cache/editor/OS files
+Carla-0.9.16-source/_DAMOS/vendor/damos_zkp/node_modules/
 __pycache__/
 *.py[cod]
 *.pyo

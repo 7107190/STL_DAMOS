@@ -7,6 +7,7 @@ import queue
 from dataclasses import dataclass, replace
 import json
 import math
+import os
 import pathlib
 import random
 import re
@@ -144,6 +145,12 @@ class ScenicCustomWalkerConfig:
     save_actor_camera_captures: bool = False
     save_observer_scene_captures: bool = False
     save_ego_fault_report: bool = False
+    live_ego_sharing: bool = False
+    sharing_rounds: int = 5
+    sharing_radius_m: float = 60.0
+    sharing_timeout_seconds: float = 18.0
+    sharing_duration_seconds: float = 0.0
+    save_sharing_video: bool = False
     ego_front_camera_fault: str = "none"
     capture_image_width: int = 1280
     capture_image_height: int = 720
@@ -186,6 +193,16 @@ class EgoTrackingState:
 
 
 def add_integration_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--live-ego-sharing", action="store_true",
+                        help="Share live front frames over peer TCP with real Groth16; detector pending.")
+    parser.add_argument("--sharing-rounds", type=int, default=5)
+    parser.add_argument("--sharing-radius-m", type=float, default=60.0,
+                        help="Camera-position neighbour radius; 0 includes all observers.")
+    parser.add_argument("--sharing-timeout-seconds", type=float, default=18.0)
+    parser.add_argument("--sharing-duration-seconds", type=float, default=0.0,
+                        help="Wall-time session limit; rounds=0 runs until this limit.")
+    parser.add_argument("--save-sharing-video", action="store_true",
+                        help="Save a live front/map/protocol evidence video (requires ffmpeg).")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=2000)
     parser.add_argument(
@@ -423,6 +440,12 @@ def config_from_args(args: argparse.Namespace) -> ScenicCustomWalkerConfig:
         save_actor_camera_captures=args.save_actor_camera_captures,
         save_observer_scene_captures=args.save_observer_scene_captures,
         save_ego_fault_report=args.save_ego_fault_report,
+        live_ego_sharing=args.live_ego_sharing,
+        sharing_rounds=args.sharing_rounds,
+        sharing_radius_m=args.sharing_radius_m,
+        sharing_timeout_seconds=args.sharing_timeout_seconds,
+        sharing_duration_seconds=args.sharing_duration_seconds,
+        save_sharing_video=args.save_sharing_video,
         ego_front_camera_fault=args.ego_front_camera_fault,
         capture_image_width=args.capture_image_width,
         capture_image_height=args.capture_image_height,
@@ -437,6 +460,24 @@ def config_from_args(args: argparse.Namespace) -> ScenicCustomWalkerConfig:
 
 
 def validate_config(config: ScenicCustomWalkerConfig) -> ScenicCustomWalkerConfig:
+    if config.save_sharing_video and not config.live_ego_sharing:
+        raise ValueError("--save-sharing-video requires --live-ego-sharing.")
+    if config.live_ego_sharing:
+        if (not config.attach_observer_cameras or not config.observer_mode
+                or not math.isfinite(config.realtime_factor) or config.realtime_factor <= 0):
+            raise ValueError("--live-ego-sharing requires observer mode, cameras and --realtime-factor > 0.")
+        if (config.sharing_rounds < 0 or not math.isfinite(config.sharing_radius_m)
+                or config.sharing_radius_m < 0 or not math.isfinite(config.sharing_timeout_seconds)
+                or not 0 < config.sharing_timeout_seconds <= 120
+                or not math.isfinite(config.sharing_duration_seconds)
+                or not 0 <= config.sharing_duration_seconds <= 3600
+                or (config.sharing_rounds == 0 and config.sharing_duration_seconds == 0)):
+            raise ValueError("Sharing requires rounds >= 0 (0 needs duration), radius >= 0, "
+                             "0 < timeout <= 120 and 0 <= duration <= 3600.")
+        if (config.ego_front_camera_fault != "none" or config.save_ego_fault_report
+                or config.save_actor_camera_captures or config.save_observer_scene_captures
+                or config.verify_s1_crossing_autopilot):
+            raise ValueError("Live sharing saves its own front frames; run fault/scene capture modes separately.")
     if not config.scenic_bin.exists():
         raise FileNotFoundError(f"Missing Scenic executable: {config.scenic_bin}")
     if not config.scenic_file.exists():
@@ -5381,9 +5422,16 @@ def sanitize_filename_fragment(text: str) -> str:
 
 
 def build_scenic_command(config: ScenicCustomWalkerConfig) -> list[str]:
+    scenic_duration = float(config.scenic_time)
+    if config.live_ego_sharing:
+        # Keep Scenic ticking while proofs run; terminate it after the requested rounds.
+        wall_budget = 120 + (config.sharing_duration_seconds or
+                            config.sharing_rounds * (3 * config.sharing_timeout_seconds + 10))
+        wall_budget += 2 * config.sharing_timeout_seconds
+        scenic_duration = max(scenic_duration, wall_budget * config.realtime_factor)
     scenic_time_steps = max(
         1,
-        int(math.ceil(float(config.scenic_time) / SCENIC_TIMESTEP_SECONDS)),
+        int(math.ceil(scenic_duration / SCENIC_TIMESTEP_SECONDS)),
     )
     command = [
         str(config.scenic_bin),
@@ -6677,7 +6725,34 @@ def launch_scenic_process(
         text=True,
         errors="replace",
         bufsize=1,
+        env={**os.environ, "PYTHONUNBUFFERED": "1"},
     )
+
+
+def wait_for_live_scene(client, scenic_proc, timeout_seconds, expected_instances):
+    """Ignore Scenic's rejected initialization attempts before binding sensor identities."""
+    deadline = time.monotonic() + timeout_seconds
+    previous, since, first_frame = None, None, None
+    while time.monotonic() < deadline:
+        if scenic_proc.poll() is not None:
+            raise RuntimeError("Scenic exited before a stable live scene was ready.")
+        world = safe_get_world(client)
+        ego = select_latest_ego_actor(world) if world is not None else None
+        try:
+            candidates = collect_scenic_anchor_candidates(world, ego) if ego is not None else []
+            labels = {c.get("scenario_instance") for c in candidates}
+            ready = ego is not None and len(labels) >= expected_instances
+            token = (ego.id, tuple(sorted(c["actor_id"] for c in candidates))) if ready else None
+            frame = world.get_snapshot().frame if ready else None
+            if token is not None and token == previous:
+                if time.monotonic() - since >= 0.5 and frame >= first_frame + 3:
+                    return world, ego
+            else:
+                previous, since, first_frame = token, time.monotonic(), frame
+        except RuntimeError:
+            previous = None
+        time.sleep(0.1)
+    raise RuntimeError("Timed out waiting for a stable Scenic ego and all abnormal scenarios.")
 
 
 def inject_custom_walkers_for_anchors(
@@ -6753,6 +6828,8 @@ def run_random_walker_routing(
     sample_lock=None,
     skip_sample_labels=(),
 ):
+    if duration_seconds <= 0:
+        return world
     scenic_deadline = time.monotonic() + max(1.0, duration_seconds + 10.0)
     started_at = time.monotonic()
     last_sample_at = None
@@ -6860,7 +6937,13 @@ def run_scenic_custom_walker_integration(
         )
 
         try:
-            world, ego = wait_for_ego_actor(client, config.wait_for_ego_seconds)
+            if config.live_ego_sharing:
+                world, ego = wait_for_live_scene(
+                    client, scenic_proc, config.wait_for_ego_seconds + config.wait_for_support_seconds,
+                    config.n_scenarios if config.selected_scenario is None else 1,
+                )
+            else:
+                world, ego = wait_for_ego_actor(client, config.wait_for_ego_seconds)
         except RuntimeError as exc:
             terminate_process(scenic_proc)
             collect_process_output(scenic_proc, output_lines)
@@ -7086,6 +7169,9 @@ def run_scenic_custom_walker_integration(
                     ego_front_camera_fault_state,
                 )
             camera_specs = load_observer_camera_specs(config.observer_camera_config)
+            if config.live_ego_sharing:
+                vehicle_camera_specs = tuple(s for s in vehicle_camera_specs if s.name == "cam_front")
+                camera_specs = tuple(s for s in camera_specs if s.name == "cam_front")
             observer_camera_specs = (
                 *serialize_observer_camera_specs(
                     vehicle_camera_specs,
@@ -7147,6 +7233,17 @@ def run_scenic_custom_walker_integration(
                 )
         else:
             logger("Ego/custom observer camera attachment disabled for this run.")
+
+        if config.live_ego_sharing:
+            from m2x.live import run_live_sharing
+            run_live_sharing(
+                world, observer_camera_attachments, config.report_dir,
+                rounds=config.sharing_rounds, radius_m=config.sharing_radius_m,
+                timeout_s=config.sharing_timeout_seconds, scenic_proc=scenic_proc,
+                duration_s=config.sharing_duration_seconds, save_video=config.save_sharing_video,
+                on_tick=lambda: orient_observers_to_current_anchors(world, spawned_walkers),
+                scenario_labels=resolved_scenario_labels, logger=logger,
+            )
 
         if config.save_ego_fault_report:
             ego_fault_report_captures = save_ego_fault_report(
@@ -7246,7 +7343,7 @@ def run_scenic_custom_walker_integration(
             world,
             spawned_walkers,
             scenic_proc,
-            config.scenic_time,
+            0.0 if config.live_ego_sharing else config.scenic_time,
             tracked_actors=tracked_actors,
             trajectory_samples=trajectory_samples,
             sample_interval_seconds=config.sample_interval_seconds,
@@ -7414,6 +7511,12 @@ def run_scenic_custom_walker_integration(
             trajectory_report_focus_png=trajectory_report_focus_png,
             trajectory_report_json=trajectory_report_json,
         )
+    except Exception:
+        terminate_process(scenic_proc)
+        collect_process_output(scenic_proc, output_lines)
+        if output_lines:
+            logger("Recent Scenic output on failure:\n" + "\n".join(output_lines[-30:]))
+        raise
     finally:
         stop_continuous_ego_sampler(ego_sampler)
         for sensor in ego_camera_sensors:

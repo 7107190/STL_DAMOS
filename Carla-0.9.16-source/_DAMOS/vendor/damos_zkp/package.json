@@ -1,0 +1,8 @@
+{
+  "name": "damos-semantic-lidar-v2v",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Explicit local snarkjs 0.7.6 toolchain; no automatic mock fallback",
+  "engines": {"node": ">=18"},
+  "dependencies": {"snarkjs": "0.7.6", "circomlib": "2.0.5"}
+}

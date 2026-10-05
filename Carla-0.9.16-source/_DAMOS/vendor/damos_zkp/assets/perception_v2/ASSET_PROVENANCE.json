@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "protocol": "groth16",
+  "curve": "bn128",
+  "nPublic": 3,
+  "public_input_order": ["registered_commitment", "context_hash", "payload_hash"],
+  "nPrivateInputs": 1,
+  "private_input": "vehicle_secret",
+  "r1cs_constraints": 417,
+  "r1cs_wires": 421,
+  "setup_class": "PINNED_PUBLIC_PTAU_NO_LOCAL_TRANSCRIPT_REVERIFY_LOCAL_PHASE2_TRUST_NOT_AUDITED",
+  "zkey_crypto_verify": "PASS",
+  "real_binding_smoke": "PASS",
+  "asset_sha256": {
+    "vehicle_commitment.wasm": "9c44de901de070b5e67ca6be1fee9a5bb25fbb96c25161baadebc832d9a316f6",
+    "vehicle_perception_auth.wasm": "da74857a67f60765968bac8f2c244e4a2074731de0d089be463291fe5577fca4",
+    "vehicle_perception_auth_final.zkey": "b47f4ce61378f9b4b7d8a3935c2bbb9121a99118e5f1061d5cff2c7fa6778e7f",
+    "vehicle_perception_auth_verification_key.json": "183df16a0abf08647511432ed273a1084574ef59b81551ca5b7ee54e98e78765"
+  },
+  "circuit_source_sha256": {
+    "vehicle_auth_v2.circom": "89b3d7a2a746b87bf2301613b5b0f0279b508b386bf35be1e064f2a971ed1a2e",
+    "vehicle_commitment.circom": "79c505c3caddc0286f3770714513755f604757fa7c06de08f90818776c07a451",
+    "vehicle_commitment_v2.circom": "592f7d447ebb67c37a06026c524cd8580d9ef108a91befde4c1714e709d03431",
+    "vehicle_perception_auth.circom": "dc0fecdad46b20611459363b610b2f78b52d1671392d6352c4166a6982922df0"
+  },
+  "note": "No device/anchor secret is included in this handoff. The proving key and verification material are distributable runtime artifacts; the setup trust statement above must be preserved."
+}

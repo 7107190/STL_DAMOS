@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "status": "PASS",
+  "result_class": "REAL_GROTH16",
+  "public_input_count": 3,
+  "asset_sha256": {
+    "commitment_wasm": "9c44de901de070b5e67ca6be1fee9a5bb25fbb96c25161baadebc832d9a316f6",
+    "auth_wasm": "da74857a67f60765968bac8f2c244e4a2074731de0d089be463291fe5577fca4",
+    "auth_zkey": "b47f4ce61378f9b4b7d8a3935c2bbb9121a99118e5f1061d5cff2c7fa6778e7f",
+    "verification_key": "183df16a0abf08647511432ed273a1084574ef59b81551ca5b7ee54e98e78765"
+  },
+  "crypto_checks": 10,
+  "packet_cases": 21,
+  "setup_class": "PINNED_PUBLIC_PTAU_NO_LOCAL_TRANSCRIPT_REVERIFY_LOCAL_PHASE2_TRUST_NOT_AUDITED",
+  "ptau_validation": {
+    "requested_policy": "pinned-public",
+    "status": "ACCEPTED_PINNED_ARTIFACT_NOT_LOCALLY_CEREMONY_VERIFIED",
+    "transcript_crypto_verify": "NOT_RUN_EXPLICIT_PINNED_PUBLIC_MODE",
+    "published_artifact_digest": "MATCH",
+    "independent_ceremony_audit": "NOT_PERFORMED"
+  },
+  "warning": "Local consistency receipt only. It is not an independent setup audit or sensor attestation."
+}
