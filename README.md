@@ -1,344 +1,201 @@
 # STL_DAMOS
 
-DAMOS는 `Decentralized Autonomous Mobility Simulation`의 약자입니다. CARLA/Scenic에서 ego 차량과 custom observer가 서로 정보를 공유해, ego의 비가시영역에서 발생한 비정상 상황까지 대응하는 협력 자율주행 시뮬레이션을 목표로 합니다.
+**현재 상태: CARLA/Scenic 비정상 상황 생성, 감시자 배치, BEV 추론·ZKP 공유·ego 합병 구현. 공식 18초 성능지표 합격은 미확정.**
 
-현재는 시나리오, observer, 센서 캡처·고장 보고서와 **정면 1프레임의 실시간 TCP 공유·Groth16 검증·ego 시간 기록**까지 구현되어 있습니다. 탐지 모델은 아직 미연결이며, 탐지까지 포함한 성능지표 2번의 18초 이내 달성은 미검증입니다.
+DAMOS(`Decentralized Autonomous Mobility Simulation`)는 ego 차량과 주변 휴머노이드·배달로봇이 인지 정보를 공유해, ego가 직접 보지 못하는 비정상 상황을 확인하는 협력 자율주행 시뮬레이션입니다. 프로젝트 방향은 [Notion SDV / DAMOS](https://www.notion.so/32d7d69010ae805b8b88c6175f5d9898), 구현·실행 상태는 이 저장소 기준입니다.
 
-이 저장소는 `/home/vvu/vv/DAMOS` 전체를 그대로 올린 백업이 아닙니다. 대용량 CARLA/Unreal/Scenic 원본은 제외하고, DAMOS 구현에 필요한 overlay 소스와 문서만 GitHub 구조에 맞춰 정리합니다.
+이 저장소는 `/home/vvu/vv/DAMOS`와 같은 상대 경로를 사용하는 **source overlay**입니다. 전체 CARLA/Unreal 실행 환경·모델 가중치·검증 결과물은 미포함. clone만으로 바로 실행되지는 않습니다.
 
-## 현재 합의 요약 (2026-10-05)
+## 문서 안내
 
-- ego autopilot 주행 중 60m 이내 감시자와 정면 이미지 1장씩 반복 공유. ego ↔ 감시자 양방향, 감시자끼리 통신 제외.
-- 한 라운드는 동일 CARLA frame ID를 사용. 교환 완료 후 최신 공통 프레임으로 다음 라운드 진행, 모든 프레임을 연속 전송하지 않음.
-- 제공된 `DAMOS_zkp`의 Groth16 엔진·회로·WASM·증명키·검증키 그대로 사용. 이미지 해시·객체/프레임 ID·수신자를 묶는 패킷과 TCP 연결부 별도 구현. 원본의 융합 객체 목록·Merkle SDK는 현재 이미지 공유 경로에서 미사용.
-- 영상은 ego 최신 정면 + ego가 실제 수신·검증한 감시자별 이미지 + 지도·검증 상태 표시. 수신 화면은 다음 교환까지 유지하므로 ego 최신 화면과 프레임 번호가 다를 수 있음.
-- `ego sharing`은 ego 입력 수신부터 인코딩·증명 생성·송수신·검증·디코딩까지의 부분 처리시간. 촬영부터 화면 표시까지의 전체 지연과 구별.
-- 최종 목표는 **ego 입력 수신 → 공유·검증 → 인지모델 탐지 완료까지 실제 경과시간 18초 이내**. 구간 내 전처리·대기·데이터 전달 포함, 경로계획·화면 표시 제외. 모델 연결 후 전체 구간을 하나의 타이머로 계측.
-- 현재 탐지 모델 미연결, 최종 18초 판정 미실시. 2026-09-16 S9 시험은 92/92회 양방향 검증 성공, 공유 평균 0.814초 / 최대 1.328초(정면 1프레임·주변 1~2대·단일 vvu 조건).
-
-## 프로젝트 기준
-
-| 항목 | 기준 |
+| 목적 | 문서 |
 |---|---|
-| 방향 기준 | [Notion SDV / DAMOS](https://www.notion.so/32d7d69010ae805b8b88c6175f5d9898) |
-| 런타임 서버 | `vvu` |
-| 실제 작업 루트 | `/home/vvu/vv/DAMOS` |
-| CARLA 작업 루트 | `/home/vvu/vv/DAMOS/Carla-0.9.16-source` |
-| 활성 DAMOS 코드 | `/home/vvu/vv/DAMOS/Carla-0.9.16-source/_DAMOS` |
-| GitHub mirror 기준 | `STL_DAMOS/Carla-0.9.16-source/_DAMOS` |
+| 현재 상태·실행 진입점·코드 구조 | 이 README |
+| 환경 설치·명령 옵션·결과 파일·실험 재현 | [docs/usage.md](docs/usage.md) |
+| 런타임 내부 구성 | [_DAMOS/README.md](Carla-0.9.16-source/_DAMOS/README.md) |
 
-## 김기웅 담당 성능지표
+## 현재 구현 (2026-10-08)
 
-2026-09-16 확인 기준, 핵심 달성 항목은 **결과물의 성능지표 2. 개별 모빌리티 시스템 시뮬레이션 처리 속도**입니다.
-
-| 항목 | 기준 |
+| 구분 | 구현 범위 |
 |---|---|
-| 1단계 목표 (2025~2026) | **18초 이내** |
-| 2단계 목표 (2027~2028) | 12초 이내 |
-| 3단계 목표 (2029~2032) | 8초 이내 |
-| 전체 평가 비중 | 25% |
-| 평가 환경 | 모빌리티 간 협력 및 데이터 공유가 이루어지는 시뮬레이션 |
-| 확인 내용 | 이동 정보, 환경 센서 데이터, 경로 최적화 정보의 공유 여부 |
-| 2차년도 평가 | 공인 시험성적(확인)서; 평가방법·환경은 KOLAS 공인 기관 인증, TRL3 기준으로 원문에 기재 |
-| 현재 달성 여부 | 미검증; 공유·검증 부분 계측 구현, 탐지 모델 미연결 |
+| 시뮬레이션 | Town10HD_Opt, S1~S9 중 랜덤 3종 동시 실행, 날씨 4개 preset 중 랜덤 |
+| Ego | Scenic이 생성한 빨간 `vehicle.ford.mustang` 1대, autopilot |
+| 감시자 | anchor당 1대, 휴머노이드/배달로봇 랜덤, 인도에서 비정상 상황 방향 감시 |
+| 센서 | 모빌리티마다 RGB 6방향 + 일반 LiDAR 1개; 부착 기준 `sensor_config.txt` |
+| 인지 입력·출력 | RGB 6방향 × 4시점 + 현재 LiDAR → 17종 BEV 확률·관측 마스크 |
+| 공유 | ego ↔ 가까운 감시자 양방향, 기본 반경 60m; 감시자끼리 통신 제외 |
+| ZKP | 제공 `DAMOS_zkp`의 실제 Groth16 회로·키·WASM 사용; BEV 패킷 adapter 별도 구현 |
+| 합병 | 검증한 BEV를 ego 좌표계로 정렬·합병, 장애물 존재·위치 확인 |
+| 평가 | 동일 actor ID·프레임의 Scenic anchor와 비교; GT는 평가용이며 추론·합병 입력 아님 |
+| 도로 오탐 보정 | 일반 LiDAR 지면 분리·입체 구조 주변 보존, 별도 체크포인트로 명시 선택 |
+| 시각화 | 동일 시점 2×3 BEV/RGB 영상, 장애물 주황색·지면 회색·미관측 어두움, 빨간 EGO 위치·방향 |
+| HW/SW 고장 | ego 기준 9종 설명용 보고서, ego front camera fault 선택 지원; 실제 전 모듈 고장 시험과 구별 |
 
-출처: [Notion 목표 & 평가](https://www.notion.so/3337d69010ae804a8f87c6417232a9d1)의 성능지표 및 평가방법 표.
+현재 목적은 **Scenic 비정상 상황 구역의 장애물 존재·위치와 공유 후 사각 부분 복원**입니다. 사람/차량 종류 정확도는 보조 진단. BEV 합병 성공만으로 모든 객체 검출·모든 사각 해소·무단횡단 행동 분류 성공을 주장하지 않습니다.
 
-2026-09-16 구현 합의: **ego 시스템이 정면 이미지를 수신한 시점부터 타 객체 이미지 수신·ZKP 검증·이상상황 탐지 완료까지** 단조 시계로 실제 경과시간을 측정합니다. 경로계획 제외. 현재는 탐지 직전까지만 계측하므로 `metric2_pass=null`이며, 공식 합격 통계·반복 조건은 평가 담당자와 별도 확정해야 합니다. `--scenic-time`, 시뮬레이션 시간, FPS로 18초 달성을 판정하지 않습니다.
+기존 `--live-ego-sharing`은 정면 이미지 1장 공유 경로입니다. 현재 `--live-bev-fusion`의 인지·BEV 공유 경로와 별개이며, 두 모드를 동시에 실행하지 않습니다.
 
-김기웅 담당 구현은 CARLA 동기화, actor·센서 생성, 제공된 ZKP 코드의 통신 연동 및 시스템 통합입니다. 우선 각 모빌리티 **정면 1장씩** 공유합니다. 6방향 × 6프레임 규격은 이예린의 인지 모델 입력 확정 후 반영합니다. 탐지 모델은 가짜 결과 없이 빈 연결 지점으로 유지하며, ego만 대표 계측합니다. 다른 모빌리티에 동일 코드를 적용할 수 있으나 처리시간 동일성을 입증한 것은 아닙니다.
+## 처리시간 기준
 
-일정 참고: [260114_콜럼버스향후일정](https://www.notion.so/ba27d69010ae83b3be8b0111420af0db)에 최종 구현 목표가 **2026년 10월 중**, 공인 평가는 ANNA 진행 예정으로 기재되어 있습니다. 이는 회의록상의 계획이며, 공식 성과·연차보고서 제출 마감일은 확인되지 않았습니다.
+김기웅 담당: **성능지표 2. 개별 모빌리티 시스템 시뮬레이션 처리 속도**. 2026-09-16 확인한 [Notion 목표 & 평가](https://www.notion.so/3337d69010ae804a8f87c6417232a9d1) 기준 1단계 목표 18초 이내, 평가 비중 25%. 후속 목표는 12초·8초입니다.
 
-## 핵심 아이디어
-
-| 구성 | 역할 |
+| 항목 | 현재 계측 정의 |
 |---|---|
-| Ego vehicle | Scenic으로 생성되는 빨간색 `vehicle.ford.mustang` ego 차량 |
-| Scenic abnormal scenarios | S1~S9 비정상 상황 생성 |
-| Custom observer | 비정상 상황 anchor 주변 인도에 배치되는 휴머노이드 또는 배달로봇 |
-| Observer cameras | `sensor_config.txt` 기준 6방향 RGB 카메라 |
-| Ego front camera fault | ego `cam_front` 1개에만 카메라 이상상황을 선택 적용 |
-| M2X 공유 목표 | ego가 직접 보지 못하는 영역의 정보를 observer가 보완 |
+| 대상 | ego 대표 계측; 다른 모빌리티도 같은 처리시간이라는 보장은 없음 |
+| 시작 | 참여 노드의 동일 4프레임 원시 입력 준비 후 worker 전달 직전 |
+| 종료 | 전처리·추론·증명·송수신·검증·ego 좌표 합병·장애물 존재 판정 완료 |
+| 시간 | 단일 호스트 공통 `perf_counter_ns`의 실제 경과시간 |
+| 제외 | 센서/history 취득 대기, 모델/키 초기화·워밍업, 평가·파일 저장, 경로계획 |
+| 시간 조건 | `pipeline_budget_pass`로 18초 이내 여부 기록 |
+| 공식 합격 | `metric2_pass=null`; 인지 기준·반복 수·네트워크 조건·공인 평가 합의 필요 |
 
-## Track 구성
+현재는 vvu 한 대에서 독립 프로세스·공유 GPU·TCP loopback으로 검증합니다. 실제 다중 PC·무선망 성능 시험이 아닙니다. ZKP는 등록 송신자와 전달 데이터의 결합을 검증하며 **모델 추론 실행·인지 정확도·현실의 진실성 자체를 증명하지 않습니다.**
 
-| Track | 목표 | 현재 범위 |
-|---|---|---|
-| Track 1 | M2X 통합 시뮬레이션, 성능지표 2번 18초 이내 달성·입증 | CARLA 실시간 정면 이미지 공유·ZKP 검증·부분 계측 구현; 탐지 연동 대기 |
-| Track 2 | CARLA GT 기반 5초 미래 궤적 예측 | Track 1 루프와 분리된 오프라인 정량 평가 |
+Scenic의 실행시간·FPS·영상 길이는 18초 처리시간과 다릅니다. Track 2의 CARLA GT 기반 5초 미래 궤적 예측은 Track 1 계측 루프와 별도 관리합니다.
 
-Track 1은 합의된 처리 범위의 지연시간을 계측·최적화합니다. Track 2의 예측/학습/GT 평가는 별도 오프라인 경로로 분리합니다.
+## 최근 수정·검증
 
-## 현재 진행상황
-
-| 구분 | 상태 |
+| 항목 | 확인 결과·제한 |
 |---|---|
-| vvu 폴더 구조 정리 | 완료 |
-| CARLA/Scenic 실행 환경 | 완료 |
-| Scenic S1~S9 비정상 상황 정리 | 완료 |
-| custom walker asset/runtime | 완료 |
-| observer mode | 완료 |
-| anchor 기반 observer 배치 | 완료, anchor당 observer 1대 |
-| observer 종류 | `deliverybot`, `humanoid`, `random` 지원 |
-| observer camera 부착 | 완료, observer당 6방향 RGB |
-| ego camera 캡처 | 완료, ego 6방향 RGB |
-| ego front camera fault | 완료, ego `cam_front`에만 적용 |
-| actor camera capture 저장 | 완료 |
-| ego 고장상황 9종 보고서 | 생성 완료; 실시간 고장 주입·모듈 정지 검증과는 구분 |
-| 보고서 3x3 이미지 | 생성 완료, LiDAR 점·패널 확대 및 흰 여백 제거 |
-| 협력 입력 | 정면 1프레임; 같은 CARLA frame ID, 최신 완전 세트만 사용 |
-| M2X 이미지 공유·ZKP | ego ↔ 근처 감시자 양방향, 실제 Groth16 + 직접 TCP; 감시자끼리 통신 제외 |
-| 주행 중 공유 대상 갱신 | 접근 시 포함·이탈 시 제외, 주변 0대는 정상 대기 |
-| 공유 검증 영상 | ego 정면 + ego가 수신·검증한 감시자별 화면 + 전체 지도·이동 경로·검증 결과 MP4 |
-| 탐지·융합 모델 | 미연결; `not_connected`, 탐지 시간·결과 `null` |
-| 성능지표 2번 처리시간 검증 | 부분 계측 구현; 탐지 포함 최종 18초 판정 미실시 |
-| 다음 핵심 작업 | 탐지 모델 연결, 다중 PC 검증, 공식 시험 조건·반복 통계 확정 |
+| 배달로봇 카메라 정지 수정 | C++ 시각 숨김이 센서 scene-capture까지 전파되던 오류 수정. CARLA 모듈 재컴파일·서버 재시작 필수 |
+| 오류 5종 재취득 | S2/S3/S5/S6/S7 총 350프레임, 각 노드 6방향 RGB 갱신·동일 actor/시각·차도·무접촉 확인, 실제 모델/Groth16/TCP/합병 재실행 |
+| 증명 재검사 | 위 재취득 영상의 시작/중간/끝 표본 30개 재검증; 수신 경로에서는 전송마다 검증 |
+| 최신 표시 영상 | S1~S9 지정 anchor 각 1곳, 599프레임·119.8초. EGO 표식 1,797개·감시자 원본 RGB·개별/합본 디코딩 해시 대조 |
+| 회귀 시험 | BEV 171개 + 이미지 공유 20개 + 공유 영상 8개, 총 199개 통과. 단위/통합 시험이며 199회 CARLA 실행 아님 |
 
-## Scenic 시나리오 상태
+**과거 결과 정정:** 기존 S2/S3/S5/S6/S7은 frame ID가 증가해도 실제 RGB 내용이 정지해 있었습니다. 해당 5종의 과거 동기 RGB/BEV 검증 주장은 철회합니다. 이전 검출률·처리시간 기록을 최신 RGB 기반 협력 인지 성능의 증빙으로 사용하지 않습니다. 원본과 실패 기록은 보존합니다.
 
-한 번의 Scenic 실행에서 `--n-scenarios 3`을 주면 S1~S9 중 최대 3개가 랜덤 선택되어 동시에 compose됩니다. 날씨는 `--weather`를 지정하지 않으면 Scenic의 4개 weather preset 중 하나가 랜덤 선택됩니다.
+새 영상 취득은 6방향 실제 이미지 내용도 검사합니다. 이 검사는 움직이는 ego 통과 영상용이며, 정적 장면의 일반 고장 판별기는 아닙니다. S3의 Traffic Manager 보행자 제동은 촬영 보조로서 BEV 기반 회피 성능과 구별합니다.
 
-| 시나리오 | 비정상 상황 | 생성 방식 | 생성 객체 | observer anchor |
-|---|---|---|---:|---:|
-| `S1` | 보행자 무단횡단 | 검증된 3개 구역 안에서 랜덤 | 보행자 3명 | 3 |
-| `S2` | 자전거 무단횡단 | 랜덤 인도 위치 | 자전거 3대 | 3 |
-| `S3` | 비가시영역 무단횡단 | 고정 위치 | 보행자 3명 | 3 |
-| `S4` | 도로 위 장애물 | 랜덤 차로 위치 | 대형 container 4개 | 4 |
-| `S5` | 인도 위 장애물 | 고정 위치 | 불법 주차 차량 6대 | 1 |
-| `S6` | 도로 공사로 인한 차선 감소 | 고정 위치 | 공사 barrier/warning 36개 | 1 |
-| `S7` | 인도 공사로 인한 통행 불가 | 고정 위치 | 공사 barrier/warning 40개 | 1 |
-| `S8` | 인도 내 군중 | 고정 cluster 3개 | 보행자 21명 | 3 |
-| `S9` | 인도 쓰레기 더미 | 고정 cluster 5개 | trash/bin 40개 | 5 |
-
-S5~S9처럼 여러 actor가 하나의 의미 단위를 만드는 경우에는 actor 하나하나가 아니라 cluster/region을 observer anchor로 봅니다. S1~S4는 개별 비정상 객체를 anchor로 봅니다.
-
-## 실행 명령
-
-기본 랜덤 3개 시나리오 실행:
-
-```bash
-cd /home/vvu/vv/DAMOS/Carla-0.9.16-source
-
-_DAMOS/scripts/run_scenic_custom_walkers_town10hd.sh \
-  --restart \
-  --port 2620 \
-  --n-scenarios 3 \
-  --runs 5 \
-  --scenic-time 20 \
-  --realtime-factor 1.0
-```
-
-특정 시나리오만 실행:
-
-```bash
-cd /home/vvu/vv/DAMOS/Carla-0.9.16-source
-
-_DAMOS/scripts/run_scenic_custom_walkers_town10hd.sh \
-  --restart \
-  --port 2620 \
-  --selected-scenario S5 \
-  --runs 1 \
-  --scenic-time 30 \
-  --realtime-factor 1.0
-```
-
-GUI 없이 actor camera capture 저장:
-
-```bash
-cd /home/vvu/vv/DAMOS/Carla-0.9.16-source
-
-_DAMOS/scripts/run_scenic_custom_walkers_town10hd.sh \
-  --restart \
-  --offscreen \
-  --port 2620 \
-  --selected-scenario S5 \
-  --runs 1 \
-  --scenic-time 30 \
-  --realtime-factor 1.0 \
-  --save-actor-camera-captures \
-  --save-ego-fault-report \
-  --ego-front-camera-fault random \
-  --no-trajectory-report
-```
-
-저장 위치:
+최신 합본은 아래 경로에 보존합니다. S2/S3/S5/S6/S7은 재취득 입력, S1/S4/S8/S9는 정상 확인한 기존 RGB 사용. 주황색·EGO 표식 변경은 **표시 전용 재생성**이며 새 추론·증명·18초 시험이 아닙니다.
 
 ```text
 /home/vvu/vv/DAMOS/Carla-0.9.16-source/_DAMOS/reports/
+├── observer_camera_refresh_20261008/       # 재취득·카메라 수정 검증
+└── bev_orange_ego_20261008/
+    ├── tests_report.json
+    └── videos/
+        ├── S1-S9_orange_ego_2x3.mp4
+        ├── S*_orange_ego_2x3.mp4
+        └── video_index.json
 ```
 
-### 실시간 이미지 공유·ZKP·ego 계측
+도로 보정의 과거 599프레임 비교는 구역 검출 564/585 유지, 미검출 21·미평가 14프레임 잔존입니다. 이는 저장 입력의 개발 진단이며 새 전체 anchor 검출률이나 독립 반복 성능이 아닙니다. 상세 실험·실패·모델 선택 기록은 [사용법](docs/usage.md)에 남겨둡니다.
 
-ZKP 초기 환경은 [사용법](docs/usage.md#실시간-정면-이미지-공유와-zkp)에 따라 Node.js와 `npm ci`로 준비합니다. vvu에는 준비되어 있습니다.
+## 실행
+
+아래 명령은 **vvu에 준비된 환경 기준**입니다. conda 활성화 불필요. 다른 서버는 [새 컴퓨터 세팅](docs/usage.md#새-컴퓨터에서-처음-세팅하기), [BEV 추가 환경](docs/usage.md#실제-bev-추론zkp-공유ego-합병), [ZKP 준비](docs/usage.md#실시간-정면-이미지-공유와-zkp)부터 진행합니다.
+
+### 기본 시뮬레이션
+
+랜덤 3종 동시 실행, 전체 실행 5회 반복. GUI가 부담되면 `--offscreen` 추가.
 
 ```bash
 cd /home/vvu/vv/DAMOS/Carla-0.9.16-source
-
 _DAMOS/scripts/run_scenic_custom_walkers_town10hd.sh \
-  --restart --offscreen --port 2620 \
-  --n-scenarios 3 --runs 1 --scenic-time 30 --realtime-factor 1.0 \
-  --live-ego-sharing --sharing-rounds 0 --sharing-duration-seconds 90 \
-  --sharing-radius-m 60 --save-sharing-video \
-  --no-trajectory-report
+  --restart --port 2620 --n-scenarios 3 --runs 5 \
+  --scenic-time 20 --realtime-factor 1.0
 ```
 
-- 기본값 60m: 매 라운드 ego 카메라 위치와 감시자 카메라 위치 사이의 거리로 선택. `0`이면 ego가 전체 감시자와 공유. **어느 경우에도 감시자끼리의 통신은 없음.**
-- 각 객체의 기존 부착 위치에서 정면 카메라 1개만 사용. 일반 캡처 모드의 6방향 설정은 유지.
-- CARLA를 멈추지 않고 ego와 선택된 감시자만 증명 생성·양방향 송수신·검증 수행. 먼 감시자는 카메라 listen을 멈추고 worker 대기, 이미지·증명 작업 및 결과 대기에서 제외. 최초 노드·키 준비는 전체 객체에 대해 한 번 수행.
-- 주변 0대는 실패가 아닌 대기. ego 주행 계속, 공유 횟수와 성공 통계에 포함하지 않음. 대상은 라운드 시작에 확정하고 진행 중에는 유지, 다음 라운드에 재선정.
-- 공유 횟수 또는 시간 상한 중 먼저 도달한 조건으로 종료. 위 명령은 90초 동안 계속하며 진행 중 라운드는 마무리. 이 모드에서 `--scenic-time`은 종료 시점이 아님.
-- 저장: `_DAMOS/reports/live_sharing_*/summary.json`, `ego_rounds.jsonl`, `peer_debug.jsonl`, `membership.jsonl`, `round_001/*.png`. 영상 옵션은 `ego_neighbour_sharing.mp4`와 `video_telemetry.jsonl`도 저장.
-- 영상 수신 화면은 ego가 검증 후 저장한 감시자 PNG 사용. actor/frame/round·SHA-256 대조 후 표시하며 미수신·미검증은 대기, 이탈한 대상은 제외. 한 프레임 공유이므로 다음 교환까지 마지막 검증 이미지를 유지하며 ego 실시간 화면과 프레임 번호를 구별.
-- 현재는 **vvu 한 대의 독립 프로세스·loopback TCP 시험**. 다중 PC 분산 배치·실제 무선망 지연 검증 아님. ZKP는 네트워크 자체나 이미지 암호화가 아니며, 인증·무결성 검증에 사용.
-- 같은 프레임 확보 대기, 초기 키 준비, 보고서 저장은 측정 밖. 측정 시작 후 인코딩·패킷·증명 생성·송수신·검증·디코딩 포함. 탐지는 미연결이며 18초 최종 합격으로 표시하지 않음.
+### BEV 추론·공유·합병
 
-## 주요 옵션
+현재 도로 보정 후보를 명시적으로 선택. GPU 메모리 확인용으로 처음에는 `--n-scenarios 3` 대신 `--selected-scenario S5` 권장.
 
-| 옵션 | 의미 |
-|---|---|
-| `--selected-scenario S5` | 특정 시나리오 하나만 강제 실행 |
-| `--n-scenarios 3` | 랜덤 실행 시 S1~S9 중 최대 3개 선택 |
-| `--runs 5` | 전체 Scenic/custom observer 실행을 5회 반복 |
-| `--scenic-time 20` | 각 run의 Scenic 실행 시간 제한 |
-| `--realtime-factor 1.0` | 시뮬레이션 tick을 실제 시간에 가깝게 조절 |
-| `--observer-blueprint random` | anchor마다 휴머노이드/배달로봇 중 랜덤 배치 |
-| `--max-anchor-pairs N` | 이름은 legacy지만 실제 의미는 최대 anchor N개 커버 |
-| `--save-actor-camera-captures` | ego와 observer의 카메라 이미지를 저장 |
-| `--save-ego-fault-report` | ego 기준 LiDAR noise, sensor delay, module stop 및 3x3 보고서 이미지 저장 |
-| `--ego-front-camera-fault random` | ego `cam_front`에만 랜덤 카메라 fault 적용 |
-| `--offscreen` | GUI 없이 RGB capture 가능한 CARLA 서버 실행 |
-| `--live-ego-sharing` | 정면 1장 실시간 공유·검증·ego 부분 계측 |
-| `--sharing-rounds 5` | 한 Scenic 실행 안에서 공유 시도 5회; 대기는 횟수에서 제외 |
-| `--sharing-rounds 0` | 횟수 제한 없이 `--sharing-duration-seconds` 동안 실행 |
-| `--sharing-duration-seconds 90` | 실제 세계시간 기준 세션 90초, 진행 중 교환은 마무리 |
-| `--sharing-radius-m 60` | ego에서 60m 이내 감시자만 공유; 0이면 ego ↔ 모든 감시자 |
-| `--save-sharing-video` | ego 정면·실제 수신 감시자 화면·전체 지도·검증 결과 MP4, ffmpeg 필요 |
-| `--sharing-timeout-seconds 18` | 라운드 제한 시간; 시간초과·미수신은 실패 기록 |
-| `--static-ego` | 수동 확인용으로 ego 정지 |
+```bash
+cd /home/vvu/vv/DAMOS/Carla-0.9.16-source
+env DAMOS_BEV_CHECKPOINT=/home/vvu/vv/DAMOS/Carla-0.9.16-source/_DAMOS/models/yerin_bev/scenic_presence_ground_guard_20261008.pt \
+  _DAMOS/scripts/run_scenic_custom_walkers_town10hd.sh \
+  --restart --offscreen --port 2620 --n-scenarios 3 --runs 1 \
+  --scenic-time 30 --realtime-factor 1.0 \
+  --live-bev-fusion --bev-rounds 3 --bev-radius-m 60 \
+  --evaluate-bev --no-trajectory-report
+```
 
-## HW/SW 고장상황 구현 범위
+`DAMOS_BEV_CHECKPOINT` 생략 시 원본 모델 사용. 후보 가중치는 Git 미포함이며 vvu에는 준비됨. 신규 환경의 전달·해시 확인·보정 패키징은 [사용법](docs/usage.md#도로-오탐-보정-모델) 참조.
 
-모든 고장상황은 ego 기준으로 적용하거나 시각화합니다. Camera fault 선택 기능은 ego `cam_front` 하나에만 적용되며, observer 카메라와 ego의 나머지 카메라는 정상 이미지를 유지합니다. 아래 9개 항목의 보고서 생성은 구현되어 있지만, 9종 모두를 실제 협력 처리 파이프라인에 주입하고 영향을 검증한 상태는 아닙니다.
+실제 처리 중에도 Scenic은 진행합니다. 교환 완료 후 최신 공통 입력으로 다음 라운드를 시작하며 모든 tick을 연속 처리하지는 않습니다. `--bev-rounds`는 교환 횟수, `--runs`는 전체 시나리오 실행 횟수입니다. 이웃 없음은 대기이며 성공 횟수에 포함하지 않습니다.
 
-| 분류 | 고장상황 | 적용 대상 | 구현 방식 |
-|---|---|---|---|
-| HW-like | Camera blackout | ego front camera | 카메라 신호를 검정 화면으로 대체 |
-| HW-like | Camera degradation | ego front camera | blur, occlusion, color failure, shaking 등 영상 품질 저하 |
-| HW-like | Camera misalignment | ego front camera | 카메라 fault 선택 지원; 3x3 보고서는 캡처 영상의 회전·이동으로 재현 |
-| HW-like | LiDAR noise | 캡처한 ego LiDAR | point cloud 좌표에 Gaussian noise를 적용한 보고서 |
-| HW-like | LiDAR dropout | 캡처한 ego LiDAR | point cloud 일부를 제거한 보고서 |
-| HW-like | LiDAR outlier | 캡처한 ego LiDAR | 가짜 point를 추가한 보고서 |
-| HW/SW 경계 | Sensor delay | 수집한 ego RGB 프레임 | 과거·현재 프레임 비교로 지연 출력 재현 |
-| SW-like | Module stop/freeze | ego RGB 기반 모의 출력 | 고정된 과거 프레임으로 출력 정지 재현; 실제 모듈 중지 아님 |
-| SW-like | Stale perception output | ego RGB 기반 모의 출력 | 오래된 프레임으로 출력 노후화 재현; 실제 인식 결과 연동 아님 |
+### 동일 시점 2×3 영상
 
-Camera fault 선택값:
+```bash
+cd /home/vvu/vv/DAMOS/Carla-0.9.16-source
+env DAMOS_BEV_CHECKPOINT=/home/vvu/vv/DAMOS/Carla-0.9.16-source/_DAMOS/models/yerin_bev/scenic_presence_ground_guard_20261008.pt \
+  /home/vvu/vv/DAMOS/.venvs/bev/bin/python \
+  _DAMOS/scripts/run_bev_passby_sweep.py \
+  --scenarios S1 --seconds 30 --port 2670 \
+  --report-root /여유공간있는/새_영상_폴더
+```
 
-| mode | 포함 항목 |
-|---|---|
-| `blackout` | Camera blackout |
-| `blur`, `occlusion`, `color_failure`, `shaking` | Camera degradation |
-| `misalignment` | Camera misalignment |
-| `random` | visible camera fault 중 랜덤 선택 |
+윗줄 ego/감시자/합병 BEV, 아랫줄 ego/감시자/탑다운 RGB. 먼저 센서 취득 후 실제 모델·ZKP·합병을 재생하는 **오프라인 영상**, 실시간 속도 평가 아님. 상세 옵션·최소 디스크 조건은 [영상 사용법](docs/usage.md#동일-프레임-2×3-주행-영상) 참조.
 
-LiDAR noise/dropout/outlier, sensor delay, module stop/freeze, stale output 이미지는 `--save-ego-fault-report`로 저장합니다. 9개 항목을 한 장에 모은 `ego_fault_report_3x3.png`도 같이 생성됩니다. 예전 `/home/vvu/vv/DAMOS/Camera` 폴더는 legacy demo 코드입니다. 현재 실행 경로는 `_DAMOS/scripts/scenic_custom_walker_injector.py`와 `_DAMOS/scripts/live_ego_front_camera.py`입니다.
+## Scenic 시나리오
 
-3x3 이미지는 고장 효과를 설명하는 자료입니다. 실제 인식 모듈 정지, 주행 대응, 협력 복구 또는 18초 처리 성능의 시험 증빙으로 사용하지 않습니다.
+| 번호 | 상황 | 객체 위치 | 생성 객체 수 | anchor 수 |
+|---|---|---|---:|---:|
+| S1 | 보행자 무단횡단 | 검증된 3구역 안에서 랜덤 | 보행자 3 | 3 |
+| S2 | 자전거 무단횡단 | 랜덤 인도 위치 | 자전거 3 | 3 |
+| S3 | 비가시영역 무단횡단 | 고정 | 보행자 3 | 3 |
+| S4 | 도로 위 장애물 | 랜덤 차로 위치 | 대형 container 4 | 4 |
+| S5 | 인도 위 장애물 | 고정 | 불법 주차 차량 6 | 1 |
+| S6 | 도로 공사·차선 감소 | 고정 | barrier/warning 36 | 1 |
+| S7 | 인도 공사·통행 불가 | 고정 | barrier/warning 40 | 1 |
+| S8 | 인도 군중 | 고정 cluster 3곳 | 보행자 21 | 3 |
+| S9 | 인도 쓰레기 더미 | 고정 cluster 5곳 | trash/bin 40 | 5 |
 
-## 저장소 구조
+S1~S4는 개별 객체, S5~S9는 의미 있는 구역/군집이 anchor입니다. 각 anchor에 감시자 1대 배치. S2·S4 랜덤 생성 방식 유지. 고정 시나리오의 감시자는 검증된 인도 위치, 랜덤 시나리오는 생성 anchor에 맞춘 인도 위치 사용.
+
+## 저장소·코드 구조
 
 ```text
 STL_DAMOS/
 ├── README.md
+├── sensor_config.txt
+├── docs/usage.md
 ├── Carla-0.9.16-source/
 │   ├── _DAMOS/
-│   ├── Scenic/
-│   │   └── Maps/
-│   └── Unreal/
-│       └── CarlaUE4/Plugins/Carla/Source/Carla/Damos/
-├── UnrealEngine_4.26/
-│   └── README.md
-├── docs/
+│   │   ├── README.md
+│   │   ├── _scenarios/       # Scenic S1~S9
+│   │   ├── scripts/          # 실행·센서·인지·공유·평가·시각화
+│   │   ├── tests/            # 회귀 시험
+│   │   ├── vendor/           # 제공 BEV·ZKP 소스와 출처
+│   │   ├── custom_walkers/   # 환경 확인
+│   │   ├── unreal/           # walker asset import
+│   │   └── carla_import/     # CARLA 연결 helper
+│   ├── Scenic/Maps/          # OpenDRIVE
+│   └── Unreal/CarlaUE4/Plugins/Carla/Source/Carla/Damos/
+├── UnrealEngine_4.26/README.md
 └── archive/
 ```
 
-| GitHub 경로 | vvu 실제 경로 | 설명 |
-|---|---|---|
-| `Carla-0.9.16-source/_DAMOS` | `/home/vvu/vv/DAMOS/Carla-0.9.16-source/_DAMOS` | 실행 스크립트, Scenic 시나리오, custom walker runtime |
-| `Carla-0.9.16-source/Scenic/Maps` | `/home/vvu/vv/DAMOS/Carla-0.9.16-source/Scenic/Maps` | Scenic용 OpenDRIVE map |
-| `Carla-0.9.16-source/Unreal/.../Damos` | `/home/vvu/vv/DAMOS/Carla-0.9.16-source/Unreal/.../Damos` | Unreal custom walker source overlay |
-| `UnrealEngine_4.26/README.md` | `/home/vvu/vv/DAMOS/UnrealEngine_4.26` | 실제 UE 전체는 Git에서 제외하고 위치만 문서화 |
-| `docs/` | `/home/vvu/vv/DAMOS/docs` | 공유용 실행/사용법 문서 |
-
-## 운영 규칙
-
-`AGENTS.md`에 따로 있던 내용은 README로 통합했습니다.
-
-| 규칙 | 이유 |
+| scripts 내부 역할 | 주요 파일 |
 |---|---|
-| Notion `SDV / DAMOS`를 방향 기준으로 둔다 | 저장소는 구현 상태를 반영하고, 기획 원본은 Notion이 기준 |
-| Track 1 처리시간은 합의된 범위로 측정한다 | 성능지표 2번 18초 이내 달성·입증이 목표이며, 보고서 생성과 실제 처리 지연을 구분 |
-| Track 2는 오프라인으로 분리한다 | 5초 미래 궤적 예측은 CARLA GT 기반 평가 경로로 분리 |
-| custom walker는 기본적으로 observer로 사용한다 | 현재 목표는 walker navigation이 아니라 비가시영역 정보 공유 |
-| 전체 CARLA/UE/Scenic vendor tree는 Git에 올리지 않는다 | DAMOS 고유 overlay만 추적하기 위함 |
+| 실행·배치 | `run_scenic_custom_walkers_town10hd.sh`, `scenic_custom_walker_injector.py` |
+| 센서·동기화 | `bev_sensor_rig.py`, `bev_camera_freshness.py`, `bev_scene_camera.py` |
+| 추론·보정 | `bev_model_runtime.py`, `bev_lidar_calibration.py`, `bev_ground_guard.py` |
+| ZKP·통신·합병 | `bev_protocol.py`, `bev_mesh.py`, `bev_live.py`, `bev_fusion.py` |
+| 존재 판정·평가 | `bev_occupancy.py`, `bev_evaluation.py`, `bev_anchor_evaluation.py` |
+| 이미지·영상 | `report_bev_camera_triptych.py`, `bev_passby_video.py`, `bev_video_render.py` |
+| 수집·학습·진단 | `run_bev_*`, `train_bev_*`, `audit_bev_*`; 상세 명령은 사용법 |
 
-## Git에 올리지 않는 것
+vvu 런타임은 `/home/vvu/vv/DAMOS`, Git mirror는 `/home/vvu/vv/DAMOS/_git/STL_DAMOS`입니다. 하위 상대 경로는 동일하지만 mirror에 실행 환경 전체가 있지는 않습니다. import 경로·실행 명령 호환성을 위해 기존 scripts 경계 유지, 중복 문서 중심 정리.
 
-| 제외 대상 | 이유 |
-|---|---|
-| 전체 `Carla-0.9.16-source` vendor/build tree | 대용량이며 DAMOS 고유 소스가 아님 |
-| 전체 `UnrealEngine_4.26` | 외부 엔진 dependency |
-| 전체 Scenic source | 외부 dependency, 필요한 map과 overlay만 추적 |
-| `Carla-0.9.16-source/_DAMOS/logs` | 실행 로그 |
-| `Carla-0.9.16-source/_DAMOS/reports` | 검증 이미지/JSON |
-| `Carla-0.9.16-source/_DAMOS/3d_model` | 대용량 모델 원본 |
-| `__pycache__`, `*.pyc` | Python 생성물 |
+Git 제외: CARLA/UE 전체 소스·빌드, 전체 Scenic checkout, 3D 모델 원본, `.venvs`, `models`, `datasets`, `logs`, `reports`, 캐시·백업. 대용량 입력·가중치·영상은 별도 전달하고 해시·출처 확인. 제공 BEV 원본 코드 해시는 `vendor/yerin_bev/provenance.json`에 기록합니다.
 
-## 수정 후 검증
+## 검증·다음 작업
 
-수정한 파일 종류에 맞춰 필요한 것만 실행합니다.
+전체 회귀 시험:
 
 ```bash
-cd /home/vvu/vv/DAMOS
-
-python3 -m py_compile Carla-0.9.16-source/_DAMOS/scripts/*.py
-bash -n Carla-0.9.16-source/_DAMOS/scripts/*.sh
-git diff --check
+DAMOS_TEST_REAL_ZKP=1 /home/vvu/vv/DAMOS/.venvs/bev/bin/python \
+  -m unittest discover \
+  -s /home/vvu/vv/DAMOS/Carla-0.9.16-source/_DAMOS/tests -p 'test_*.py'
 ```
 
-observer runtime을 건드렸다면 vvu에서 최소 1회 실행 검증합니다.
+실제 Groth16 시험에는 Node.js·ZKP 의존성 준비 필요. 문법·실행 검사는 [사용법](docs/usage.md#수정-후-검증) 참조. Git 명령은 런타임 루트가 아니라 Git mirror에서 실행합니다.
 
-```bash
-cd /home/vvu/vv/DAMOS/Carla-0.9.16-source
+남은 작업:
 
-_DAMOS/scripts/run_scenic_custom_walkers_town10hd.sh \
-  --restart \
-  --offscreen \
-  --port 2620 \
-  --n-scenarios 3 \
-  --runs 1 \
-  --scenic-time 20 \
-  --realtime-factor 1.0 \
-  --save-actor-camera-captures \
-  --no-trajectory-report
-```
-
-## 다음 작업
-
-| 우선순위 | 작업 | 완료 기준 |
-|---|---|---|
-| 1 | 탐지 모델 연결 | 현재 빈 detector 연결 지점에 실제 입력·출력 연동 |
-| 2 | 최종 입력 규격 적용 | 이예린의 모델 준비 후 6방향 × 6프레임 필요 여부·규격 확정 |
-| 3 | 다중 PC 배치 | 현재 loopback을 실제 호스트 주소·신뢰 등록·보호된 통신으로 확장 |
-| 4 | 전체 처리시간 반복 검증 | 탐지까지 실제 계측, 통신 조건·실패·시간초과 포함 보고 |
-| 5 | 시험 증빙 확보 | 공식 합격 통계·환경 확정 및 공인 시험 제출 자료 정리 |
-
-측정 설계와 현재 명령의 범위는 [사용법의 성능지표 2번 검증 준비](docs/usage.md#성능지표-2번-검증-준비)를 참고합니다. Track 2의 CARLA GT 추출은 별도 담당·평가 흐름으로 관리합니다.
-
-## 참고 문서
-
-| 문서 | 내용 |
-|---|---|
-| `docs/usage.md` | 환경 세팅, 실행 명령, 코드 사용법 |
-| `Carla-0.9.16-source/_DAMOS/README.md` | DAMOS runtime wrapper 상세 |
+- 수정된 최신 RGB로 전체 anchor 검출·사각 복원 재평가, 미검출·미평가 구역 확인.
+- 이웃 수·랜덤 seed·날씨별 실제 전체 처리시간 반복 시험, 실패·시간초과 포함.
+- 다중 PC·실제 네트워크 배치와 통신 보호 검증.
+- 공식 계측 범위·정확도 기준·반복 수·합격 통계·공인 시험 환경 확정.

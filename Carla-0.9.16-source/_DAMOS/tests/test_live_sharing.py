@@ -112,9 +112,10 @@ class ProtocolTests(unittest.TestCase):
             with socket.create_connection(inbox.address, timeout=2) as sock:
                 sock.sendall(struct.pack("!II", MAX_HEADER + 1, 1))
                 self.assertEqual(sock.recv(1), b"")
-            self.assertEqual(inbox.errors, 1)
         finally:
             inbox.close()
+        # Socket EOF can precede the server's exception counter update.
+        self.assertEqual(inbox.errors, 1)
 
 
 class BufferTests(unittest.TestCase):

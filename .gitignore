@@ -3,6 +3,7 @@
 # Runtime/generated output
 Carla-0.9.16-source/_DAMOS/logs/
 Carla-0.9.16-source/_DAMOS/reports/
+Carla-0.9.16-source/_DAMOS/datasets/
 Carla-0.9.16-source/_DAMOS/_tmp_sync/
 Carla-0.9.16-source/_DAMOS/_tmp_upload/
 Carla-0.9.16-source/_DAMOS/backups/
@@ -10,6 +11,8 @@ Carla-0.9.16-source/_DAMOS/legacy_stl_damos/
 
 # Large source assets kept only on vvu
 Carla-0.9.16-source/_DAMOS/3d_model/
+Carla-0.9.16-source/_DAMOS/models/
+.venvs/
 
 # Full CARLA vendor/build tree. Only selected overlay paths are tracked.
 Carla-0.9.16-source/*

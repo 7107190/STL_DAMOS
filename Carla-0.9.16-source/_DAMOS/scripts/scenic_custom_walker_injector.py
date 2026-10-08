@@ -145,6 +145,22 @@ class ScenicCustomWalkerConfig:
     save_actor_camera_captures: bool = False
     save_observer_scene_captures: bool = False
     save_ego_fault_report: bool = False
+    attach_bev_sensors: bool = False
+    save_bev_inputs: bool = False
+    live_bev_fusion: bool = False
+    compare_bev_inputs: bool = False
+    collect_bev_dataset: bool = False
+    bev_dataset_root: pathlib.Path | None = None
+    bev_dataset_split: str = "train"
+    scene_seed: int | None = None
+    evaluate_bev: bool = False
+    bev_scene_cameras: bool = False
+    bev_video_seconds: float = 0.0
+    bev_video_anchor: int = 1
+    bev_video_target: tuple[float, float] | None = None
+    bev_rounds: int = 3
+    bev_radius_m: float = 60.0
+    bev_timeout_seconds: float = 60.0
     live_ego_sharing: bool = False
     sharing_rounds: int = 5
     sharing_radius_m: float = 60.0
@@ -193,6 +209,31 @@ class EgoTrackingState:
 
 
 def add_integration_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--live-bev-fusion", action="store_true",
+                        help="Run per-mobility BEV models, real ZKP sharing and timed ego fusion.")
+    parser.add_argument("--compare-bev-inputs", action="store_true",
+                        help="Diagnostic only: paired FOV/history conditions, no ZKP or 18s benchmark.")
+    parser.add_argument("--collect-bev-dataset", action="store_true",
+                        help="Collect new scene-split adaptation data, no inference or ZKP.")
+    parser.add_argument("--bev-dataset-root", type=pathlib.Path)
+    parser.add_argument("--bev-dataset-split",choices=("train","val","test"),default="train")
+    parser.add_argument("--scene-seed",type=int)
+    parser.add_argument("--evaluate-bev", action="store_true",
+                        help="Evaluation-only same-frame CARLA boxes and semantic LiDAR; requires --live-bev-fusion.")
+    parser.add_argument("--bev-scene-cameras", action="store_true",
+                        help="Save actual overhead RGB at the BEV input frame; requires --evaluate-bev.")
+    parser.add_argument("--bev-video-seconds", type=float, default=0.,
+                        help="Capture a synchronized pass-by then replay BEV/ZKP offline; not a live benchmark.")
+    parser.add_argument("--bev-video-anchor", type=int, default=1)
+    parser.add_argument("--bev-video-target", type=float, nargs=2,
+                        help="Resolve video anchor near this Scenic X Y, then pin its original actor IDs.")
+    parser.add_argument("--bev-rounds", type=int, default=3)
+    parser.add_argument("--bev-radius-m", type=float, default=60.)
+    parser.add_argument("--bev-timeout-seconds", type=float, default=60.)
+    parser.add_argument("--attach-bev-sensors", action="store_true",
+                        help="Attach model-order six RGB cameras plus ray-cast LiDAR to ego and all observers.")
+    parser.add_argument("--save-bev-inputs", action="store_true",
+                        help="Save synchronized four-frame BEV model inputs; implies --attach-bev-sensors.")
     parser.add_argument("--live-ego-sharing", action="store_true",
                         help="Share live front frames over peer TCP with real Groth16; detector pending.")
     parser.add_argument("--sharing-rounds", type=int, default=5)
@@ -440,6 +481,22 @@ def config_from_args(args: argparse.Namespace) -> ScenicCustomWalkerConfig:
         save_actor_camera_captures=args.save_actor_camera_captures,
         save_observer_scene_captures=args.save_observer_scene_captures,
         save_ego_fault_report=args.save_ego_fault_report,
+        attach_bev_sensors=args.attach_bev_sensors or args.save_bev_inputs or args.live_bev_fusion or args.compare_bev_inputs or args.collect_bev_dataset,
+        save_bev_inputs=args.save_bev_inputs,
+        live_bev_fusion=args.live_bev_fusion,
+        compare_bev_inputs=args.compare_bev_inputs,
+        collect_bev_dataset=args.collect_bev_dataset,
+        bev_dataset_root=args.bev_dataset_root,
+        bev_dataset_split=args.bev_dataset_split,
+        scene_seed=args.scene_seed,
+        evaluate_bev=args.evaluate_bev,
+        bev_scene_cameras=args.bev_scene_cameras,
+        bev_video_seconds=args.bev_video_seconds,
+        bev_video_anchor=args.bev_video_anchor,
+        bev_video_target=tuple(args.bev_video_target) if args.bev_video_target is not None else None,
+        bev_rounds=args.bev_rounds,
+        bev_radius_m=args.bev_radius_m,
+        bev_timeout_seconds=args.bev_timeout_seconds,
         live_ego_sharing=args.live_ego_sharing,
         sharing_rounds=args.sharing_rounds,
         sharing_radius_m=args.sharing_radius_m,
@@ -460,6 +517,45 @@ def config_from_args(args: argparse.Namespace) -> ScenicCustomWalkerConfig:
 
 
 def validate_config(config: ScenicCustomWalkerConfig) -> ScenicCustomWalkerConfig:
+    if not math.isfinite(config.bev_video_seconds) or config.bev_video_seconds < 0:
+        raise ValueError("Video seconds must be finite and nonnegative.")
+    if config.bev_video_target is not None and (not config.bev_video_seconds or
+            not all(math.isfinite(v) for v in config.bev_video_target)):
+        raise ValueError("Video target needs video mode and finite Scenic X Y.")
+    if config.bev_video_seconds and (not config.live_bev_fusion or not config.evaluate_bev
+            or not config.bev_scene_cameras or config.static_ego or config.bev_video_anchor < 1
+            or not 8 <= config.bev_video_seconds <= 30 or not config.selected_scenario):
+        raise ValueError("BEV video requires one selected scenario, live fusion/evaluation/scene cameras, moving ego, anchor >=1 and 8..30 seconds.")
+    if config.collect_bev_dataset:
+        if (config.live_bev_fusion or config.compare_bev_inputs or config.save_bev_inputs or config.evaluate_bev
+                or not config.attach_bev_sensors or not 1 <= config.bev_rounds <= 32
+                or config.bev_dataset_root is None or config.scene_seed is None or config.scene_seed < 0):
+            raise ValueError("Dataset collection requires its own rig, root, nonnegative scene seed and 1..32 rounds.")
+    if config.compare_bev_inputs:
+        if (config.live_bev_fusion or config.save_bev_inputs or config.evaluate_bev or not config.attach_bev_sensors
+                or not 1 <= config.bev_rounds <= 10):
+            raise ValueError("Input comparison requires its own sensor rig and 1..10 rounds; no fusion/evaluate/save-input mode.")
+    if config.evaluate_bev and not config.live_bev_fusion:
+        raise ValueError("--evaluate-bev requires --live-bev-fusion.")
+    if config.bev_scene_cameras and not config.evaluate_bev:
+        raise ValueError("--bev-scene-cameras requires --evaluate-bev.")
+    if config.live_bev_fusion:
+        if not config.attach_bev_sensors or config.save_bev_inputs:
+            raise ValueError("Live BEV fusion requires its own sensor rig; do not combine --save-bev-inputs.")
+        if (config.bev_rounds < 1 or not math.isfinite(config.bev_radius_m) or config.bev_radius_m < 0
+                or not math.isfinite(config.bev_timeout_seconds) or not 0 < config.bev_timeout_seconds <= 120):
+            raise ValueError("BEV requires rounds >= 1, radius >= 0 and 0 < timeout <= 120.")
+    if config.attach_bev_sensors or config.save_bev_inputs:
+        if not config.attach_observer_cameras or not config.observer_mode:
+            raise ValueError("BEV sensors require cameras and observer mode.")
+        if not math.isfinite(config.realtime_factor) or config.realtime_factor <= 0:
+            raise ValueError("BEV sensors require --realtime-factor > 0 for stable live acquisition.")
+        if (config.live_ego_sharing or config.ego_front_camera_fault != "none"
+                or config.save_ego_fault_report or config.save_actor_camera_captures
+                or config.save_observer_scene_captures or config.verify_s1_crossing_autopilot):
+            raise ValueError("Run BEV sensor acquisition separately from front-image sharing and legacy fault/capture modes.")
+        if not config.observer_camera_config.exists():
+            raise FileNotFoundError(config.observer_camera_config)
     if config.save_sharing_video and not config.live_ego_sharing:
         raise ValueError("--save-sharing-video requires --live-ego-sharing.")
     if config.live_ego_sharing:
@@ -5393,6 +5489,10 @@ def terminate_process(proc: subprocess.Popen) -> None:
 
 
 def collect_process_output(proc: subprocess.Popen, output_lines: list[str]) -> None:
+    reader = getattr(proc, "_damos_output_reader", None)
+    if reader is not None:
+        reader.join(timeout=5)
+        return
     if proc.stdout is None:
         return
     for line in proc.stdout:
@@ -5423,15 +5523,21 @@ def sanitize_filename_fragment(text: str) -> str:
 
 def build_scenic_command(config: ScenicCustomWalkerConfig) -> list[str]:
     scenic_duration = float(config.scenic_time)
+    if config.save_bev_inputs:
+        scenic_duration = max(scenic_duration, 120 * config.realtime_factor)
+    if config.live_bev_fusion or config.compare_bev_inputs or config.collect_bev_dataset:
+        scenic_duration = max(scenic_duration, (600 + config.bev_rounds *
+                              (config.bev_timeout_seconds + 30)) * config.realtime_factor)
     if config.live_ego_sharing:
         # Keep Scenic ticking while proofs run; terminate it after the requested rounds.
         wall_budget = 120 + (config.sharing_duration_seconds or
                             config.sharing_rounds * (3 * config.sharing_timeout_seconds + 10))
         wall_budget += 2 * config.sharing_timeout_seconds
         scenic_duration = max(scenic_duration, wall_budget * config.realtime_factor)
+    timestep = .05 if config.compare_bev_inputs else SCENIC_TIMESTEP_SECONDS
     scenic_time_steps = max(
         1,
-        int(math.ceil(scenic_duration / SCENIC_TIMESTEP_SECONDS)),
+        int(math.ceil(scenic_duration / timestep)),
     )
     command = [
         str(config.scenic_bin),
@@ -5448,7 +5554,7 @@ def build_scenic_command(config: ScenicCustomWalkerConfig) -> list[str]:
         str(scenic_time_steps),
         "--param",
         "timestep",
-        str(SCENIC_TIMESTEP_SECONDS),
+        str(timestep),
         "--param",
         "N_SCENARIOS",
         str(config.n_scenarios),
@@ -5468,6 +5574,8 @@ def build_scenic_command(config: ScenicCustomWalkerConfig) -> list[str]:
         "reload_world",
         "0",
     ]
+    if config.scene_seed is not None:
+        command.extend(["--seed",str(config.scene_seed)])
     if config.selected_scenario:
         command.extend(["--param", "SELECTED_SCENARIO", config.selected_scenario])
     else:
@@ -6708,6 +6816,7 @@ def launch_scenic_process(
     scenic_cmd: list[str],
     *,
     logger: Callable[[str], None],
+    capture_lines: list[str] | None = None,
 ) -> subprocess.Popen:
     scenario_summary = selected_abnormal_scenario_summary(scenic_cmd)
     logger("")
@@ -6717,7 +6826,7 @@ def launch_scenic_process(
     if config.verbose:
         logger("Launching Scenic:")
         logger("  " + " ".join(scenic_cmd))
-    return subprocess.Popen(
+    proc = subprocess.Popen(
         scenic_cmd,
         cwd=str(scenic_root_for(config)),
         stdout=subprocess.PIPE,
@@ -6727,15 +6836,27 @@ def launch_scenic_process(
         bufsize=1,
         env={**os.environ, "PYTHONUNBUFFERED": "1"},
     )
+    if capture_lines is not None:
+        def capture():
+            with proc.stdout:
+                for line in proc.stdout:
+                    capture_lines.append(line.rstrip())
+        reader = threading.Thread(target=capture, daemon=True)
+        proc._damos_output_reader = reader
+        reader.start()
+    return proc
 
 
-def wait_for_live_scene(client, scenic_proc, timeout_seconds, expected_instances):
+def wait_for_live_scene(client, scenic_proc, timeout_seconds, expected_instances, output_lines=None):
     """Ignore Scenic's rejected initialization attempts before binding sensor identities."""
     deadline = time.monotonic() + timeout_seconds
     previous, since, first_frame = None, None, None
     while time.monotonic() < deadline:
         if scenic_proc.poll() is not None:
             raise RuntimeError("Scenic exited before a stable live scene was ready.")
+        if output_lines is not None and len(extract_scenario_labels(output_lines)) < expected_instances:
+            time.sleep(0.1)
+            continue
         world = safe_get_world(client)
         ego = select_latest_ego_actor(world) if world is not None else None
         try:
@@ -6902,11 +7023,14 @@ def run_scenic_custom_walker_integration(
     logger: Callable[[str], None] = print,
 ) -> ScenicCustomWalkerResult:
     config = validate_config(config)
+    if config.scene_seed is not None:
+        random.seed(config.scene_seed)
     scenic_cmd = build_scenic_command(config)
-    scenic_proc = launch_scenic_process(config, scenic_cmd, logger=logger)
+    output_lines: list[str] = []
+    scenic_proc = launch_scenic_process(config, scenic_cmd, logger=logger,
+        capture_lines=output_lines if config.live_bev_fusion or config.compare_bev_inputs or config.collect_bev_dataset else None)
 
     spawned_walkers = []
-    output_lines: list[str] = []
     scenic_stopped_by_runner = False
     trajectory_report_png = None
     trajectory_report_focus_png = None
@@ -6919,6 +7043,7 @@ def run_scenic_custom_walker_integration(
     observer_camera_attachments = ()
     observer_scene_captures = ()
     ego_camera_sensors = []
+    bev_sensor_rig = None
     s1_crossing_verification = ()
     ego_sampler = None
     tracked_actors = {}
@@ -6937,10 +7062,11 @@ def run_scenic_custom_walker_integration(
         )
 
         try:
-            if config.live_ego_sharing:
+            if config.live_ego_sharing or config.live_bev_fusion or config.compare_bev_inputs or config.collect_bev_dataset:
                 world, ego = wait_for_live_scene(
                     client, scenic_proc, config.wait_for_ego_seconds + config.wait_for_support_seconds,
                     config.n_scenarios if config.selected_scenario is None else 1,
+                    output_lines=output_lines if config.live_bev_fusion or config.compare_bev_inputs or config.collect_bev_dataset else None,
                 )
             else:
                 world, ego = wait_for_ego_actor(client, config.wait_for_ego_seconds)
@@ -6982,6 +7108,10 @@ def run_scenic_custom_walker_integration(
         if config.static_ego:
             freeze_static_ego_actor(ego)
             logger("Static ego mode enabled: ego vehicle is braked and hand-braked.")
+        elif config.bev_video_seconds:
+            ego.set_autopilot(False, config.port + 6000)
+            ego.apply_control(carla.VehicleControl(brake=1.0, hand_brake=True))
+            logger("[BEV VIDEO] Holding the original ego until synchronized sensors are ready.")
 
         tracked_actors = {"ego": ego.id}
         ego_tracking_state = EgoTrackingState(
@@ -7108,10 +7238,12 @@ def run_scenic_custom_walker_integration(
                 f"multiple fallback attempts: {last_anchor_error}"
             ) from last_anchor_error
 
-        spawned_walkers = ensure_persistent_members_for_spawned_walkers(
-            world,
-            spawned_walkers,
-        )
+        # Live inference must retain Scenic-owned actors for its whole execution.
+        if not (config.live_bev_fusion or config.compare_bev_inputs or config.collect_bev_dataset):
+            spawned_walkers = ensure_persistent_members_for_spawned_walkers(
+                world,
+                spawned_walkers,
+            )
         anchor_assignments = serialize_anchor_assignments(
             tuple(
                 spawned_walker.anchor
@@ -7152,7 +7284,29 @@ def run_scenic_custom_walker_integration(
                 "overview/side captures."
             )
 
-        if config.attach_observer_cameras:
+        if config.attach_bev_sensors:
+            from bev_sensor_rig import BEVSensorRig
+            rig_observers = spawned_walkers
+            if config.compare_bev_inputs or config.collect_bev_dataset:
+                # Bound render load; anchor placement and original abnormal actors remain unchanged.
+                rig_observers = sorted(spawned_walkers,key=lambda o:o.walker.get_location().distance(ego.get_location()))[:1]
+            bev_sensor_rig = BEVSensorRig(world, ego, rig_observers, config.observer_camera_config,
+                                        compare_inputs=config.compare_bev_inputs)
+            observer_camera_attachments = tuple(r for r in bev_sensor_rig.records if r["sensor_name"] != "lidar")
+            observer_camera_specs = tuple(
+                {"name": r["sensor_name"], "blueprint_id": r["blueprint_id"],
+                 "transform": r["relative_transform"], "target_kind": "ego_vehicle"}
+                for r in observer_camera_attachments if r["track_label"] == "ego")
+            logger(f"[BEV] Attached {len(bev_sensor_rig.actors)} mobility rigs: "
+                   f"each RGB={len(bev_sensor_rig.camera_names)} (800x450), LiDAR=1; model input ready for acquisition.")
+            if config.save_bev_inputs:
+                report, manifest = bev_sensor_rig.capture(config.report_dir, resolved_scenario_labels)
+                for actor in manifest["actors"]:
+                    logger(f"[BEV] {actor['track_label']} actor={actor['actor_id']} "
+                           f"frames={actor['frames']} RGB=24 LiDAR={actor['lidar_points']} points "
+                           f"occupied_cells={actor['occupied_lidar_cells']}")
+                logger(f"[BEV] Synchronized inputs saved: {report}")
+        elif config.attach_observer_cameras:
             vehicle_camera_specs = load_vehicle_camera_specs(config.observer_camera_config)
             resolved_ego_front_camera_fault = resolve_ego_front_camera_fault(
                 config.ego_front_camera_fault
@@ -7244,6 +7398,47 @@ def run_scenic_custom_walker_integration(
                 on_tick=lambda: orient_observers_to_current_anchors(world, spawned_walkers),
                 scenario_labels=resolved_scenario_labels, logger=logger,
             )
+
+        if config.live_bev_fusion:
+            if config.bev_video_seconds:
+                from bev_passby_video import collect_passby, process_passby
+                sequence = collect_passby(
+                    bev_sensor_rig, client, config.report_dir, anchor_assignments,
+                    anchor_index=config.bev_video_anchor, seconds=config.bev_video_seconds,
+                    target_xy=config.bev_video_target,
+                    scenario=config.selected_scenario, tm_port=config.port + 6000,
+                    on_tick=lambda: orient_observers_to_current_anchors(world, spawned_walkers),
+                    logger=logger,
+                )
+                scenic_stopped_by_runner = True
+                terminate_process(scenic_proc)
+                bev_sensor_rig.close()
+                bev_sensor_rig = None
+                process_passby(sequence, timeout_s=config.bev_timeout_seconds, logger=logger)
+            else:
+                from bev_live import run_live_bev
+                run_live_bev(
+                    bev_sensor_rig, config.report_dir, rounds=config.bev_rounds,
+                    radius_m=config.bev_radius_m, timeout_s=config.bev_timeout_seconds,
+                    scenic_proc=scenic_proc, scenario_labels=resolved_scenario_labels,
+                    evaluate=config.evaluate_bev, anchor_assignments=anchor_assignments,
+                    scene_cameras=config.bev_scene_cameras,
+                    on_tick=lambda: orient_observers_to_current_anchors(world, spawned_walkers),
+                    logger=logger,
+                )
+
+        if config.compare_bev_inputs:
+            from bev_input_comparison import run_input_comparison
+            run_input_comparison(bev_sensor_rig,config.report_dir,rounds=config.bev_rounds,
+                anchor_assignments=anchor_assignments,scenario_labels=resolved_scenario_labels,logger=logger,
+                on_tick=lambda:orient_observers_to_current_anchors(world,spawned_walkers))
+
+        if config.collect_bev_dataset:
+            from bev_adaptation_data import collect_scene
+            collect_scene(bev_sensor_rig,config.bev_dataset_root,split=config.bev_dataset_split,
+                seed=config.scene_seed,rounds=config.bev_rounds,anchor_assignments=anchor_assignments,
+                scenario_labels=resolved_scenario_labels,logger=logger,
+                on_tick=lambda:orient_observers_to_current_anchors(world,spawned_walkers))
 
         if config.save_ego_fault_report:
             ego_fault_report_captures = save_ego_fault_report(
@@ -7343,7 +7538,7 @@ def run_scenic_custom_walker_integration(
             world,
             spawned_walkers,
             scenic_proc,
-            0.0 if config.live_ego_sharing else config.scenic_time,
+            0.0 if config.live_ego_sharing or config.live_bev_fusion or config.compare_bev_inputs or config.collect_bev_dataset else config.scenic_time,
             tracked_actors=tracked_actors,
             trajectory_samples=trajectory_samples,
             sample_interval_seconds=config.sample_interval_seconds,
@@ -7519,6 +7714,8 @@ def run_scenic_custom_walker_integration(
         raise
     finally:
         stop_continuous_ego_sampler(ego_sampler)
+        if bev_sensor_rig is not None:
+            bev_sensor_rig.close()
         for sensor in ego_camera_sensors:
             try:
                 sensor.destroy()

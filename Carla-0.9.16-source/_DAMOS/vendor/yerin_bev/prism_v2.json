@@ -1,0 +1,138 @@
+{
+  "_comment": "PRISM \u2014 2D Dense BEV Semantic Forecasting",
+  "_version": "2.0.0",
+  "data": {
+    "_comment": "nuScenes / Occ3D-nuScenes \ub370\uc774\ud130 \uacbd\ub85c \ubc0f grid \uc124\uc815",
+    "bev_root": "/mnt/Data/nuscenes/occ_3d_bev",
+    "nusc_root": "/mnt/Data/nuscenes/nuscenes",
+    "nusc_version": "v1.0-trainval",
+    "H": 900,
+    "W": 1600,
+    "final_dim": [
+      224,
+      480
+    ],
+    "resize_lim": [
+      0.386,
+      0.55
+    ],
+    "bot_pct_lim": [
+      0.0,
+      0.22
+    ],
+    "rot_lim": [
+      -5.4,
+      5.4
+    ],
+    "rand_flip": true,
+    "ncams": 6,
+    "xbound": [
+      -40.0,
+      40.0,
+      0.4
+    ],
+    "ybound": [
+      -40.0,
+      40.0,
+      0.4
+    ],
+    "zbound": [
+      -1.0,
+      5.4,
+      0.4
+    ],
+    "dbound": [
+      4.0,
+      45.0,
+      1.0
+    ],
+    "past_len": 6,
+    "future_len": 10,
+    "num_classes": 17,
+    "ignore_index": 255
+  },
+  "model": {
+    "_comment": "\ubaa8\ub378 \uc544\ud0a4\ud14d\ucc98 \u2014 compile_model_bev()\uc5d0 \uc9c1\uc811 \uc804\ub2ec",
+    "voxel_featC": 32,
+    "patch_size": 4,
+    "backbone": "swin_t",
+    "backbone_pretrained": true,
+    "use_spatial_backbone": true,
+    "spatial_backbone_blocks": 2,
+    "backbone_checkpoint": true,
+    "use_ego_warping": true,
+    "mamba_n_stages": 2,
+    "mamba_spatial_layers": 1,
+    "mamba_temporal_layers": 1,
+    "mamba_dropout": 0.0,
+    "scan_mode": "hilbert",
+    "tc_enabled": true,
+    "tc_K": 16,
+    "tc_nms_kernel": 7,
+    "tc_assoc_heads": 4,
+    "tc_mamba_layers": 2,
+    "tc_splat_radius": 5,
+    "tc_dropout": 0.0,
+    "tc_track_reg_w": 0.1,
+    "tc_loss_weight": 1.0,
+    "ugafr_enabled": true,
+    "ugafr_fn_weight": 2.0,
+    "ugafr_fp_weight": 1.0,
+    "ugafr_lambda_ent": 0.1,
+    "ugafr_mu_motion": 0.3,
+    "ugafr_small_boost": 2.0,
+    "ugafr_tc_boost": 3.0,
+    "ugafr_loss_weight": 0.5,
+    "gate_topk": 256,
+    "fine_disable_steps": 20000,
+    "random_patch_steps": 10000,
+    "ramp_steps": 30000,
+    "zpc_tau_start": 0.5,
+    "zpc_tau_end": 8.0,
+    "zpc_tau_anneal_steps": 80000,
+    "zpc_dyn_gate_thresh": 0.25,
+    "norm": "group",
+    "gn_groups": 32,
+    "ego_decay": 0.15
+  },
+  "train": {
+    "_comment": "\uc635\ud2f0\ub9c8\uc774\uc800, \uc2a4\ucf00\uc904\ub7ec, \ud559\uc2b5 \ub8e8\ud504 \uc124\uc815",
+    "lr": 5e-05,
+    "backbone_lr_scale": 0.1,
+    "weight_decay": 0.0001,
+    "max_grad_norm": 1.0,
+    "bsz": 1,
+    "grad_accum": 1,
+    "nworkers": 4,
+    "amp": true,
+    "seed": 42,
+    "nepochs": 10000,
+    "total_steps": 300000,
+    "lr_warmup_steps": 2000,
+    "min_lr_ratio": 0.05,
+    "label_smooth": 0.00,
+    "use_class_weights": true,
+    "class_weight_steps": 200,
+    "val_step": 99999999,
+    "log_step": 1,
+    "detail_step": 1,
+    "viz_step": 2000
+  },
+  "experiment": {
+    "_comment": "\uc2e4\ud5d8 \uc2dd\ubcc4 \ubc0f \uacbd\ub85c \u2014 bash \uc2a4\ud06c\ub9bd\ud2b8\uc5d0\uc11c \uc77d\uc5b4\uc11c --logdir \ub4f1\uc5d0 \uc0ac\uc6a9",
+    "base_logdir": "/home/dltj0425/4dMamba/logs/prism_v2",
+    "budget_ratios": [
+      0.1,
+      0.25,
+      0.5,
+      1.0
+    ],
+    "ablation_policies": [
+      "coarse_only",
+      "random",
+      "entropy",
+      "motion",
+      "ugafr"
+    ]
+  }
+}

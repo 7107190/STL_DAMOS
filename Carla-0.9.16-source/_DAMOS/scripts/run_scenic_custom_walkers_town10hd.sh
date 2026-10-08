@@ -39,6 +39,23 @@ SAVE_TRAJECTORY_REPORT=1
 SAVE_ACTOR_CAMERA_CAPTURES=0
 SAVE_OBSERVER_SCENE_CAPTURES=0
 SAVE_EGO_FAULT_REPORT=0
+ATTACH_BEV_SENSORS=0
+SAVE_BEV_INPUTS=0
+LIVE_BEV_FUSION=0
+COMPARE_BEV_INPUTS=0
+COLLECT_BEV_DATASET=0
+BEV_DATASET_ROOT=""
+BEV_DATASET_SPLIT="train"
+SCENE_SEED=""
+EVALUATE_BEV=0
+BEV_SCENE_CAMERAS=0
+BEV_VIDEO_SECONDS=0
+BEV_VIDEO_ANCHOR=1
+BEV_VIDEO_TARGET=""
+REPORT_DIR=""
+BEV_ROUNDS=3
+BEV_RADIUS_M=60
+BEV_TIMEOUT_SECONDS=60
 LIVE_EGO_SHARING=0
 SHARING_ROUNDS=5
 SHARING_RADIUS_M=60
@@ -73,6 +90,11 @@ Options:
   --runs N               Repeat full Scenic/custom observer execution N times
                           (default: 1). Each run samples scenarios again.
   --selected-scenario S  Force one abnormal scenario: S1..S9
+  --compare-bev-inputs   Paired FOV/history diagnostic only; no ZKP/18s benchmark
+  --collect-bev-dataset  Capture new adaptation data; requires root and scene seed
+  --bev-dataset-root P   New dataset root, separate from historical reports
+  --bev-dataset-split S  train, val or test (default: train)
+  --scene-seed N        Explicit Scenic/observer construction seed
   --static-ego           Spawn the ego vehicle stopped for manual inspection
   --ego-start X Y H      Spawn ego at fixed Scenic coordinate (X, Y) and
                           heading H degrees instead of random lane placement
@@ -106,6 +128,21 @@ Options:
                           shaking, freeze_cycle
   --save-ego-fault-report Save ego-centric report images for LiDAR noise,
                           RGB sensor delay, and module stop/freeze
+  --attach-bev-sensors   Attach six 800x450 RGB cameras plus LiDAR to every mobility
+  --save-bev-inputs      Save four common frames, calibration, poses and LiDAR
+                          model-input NPZs; implies --attach-bev-sensors.
+                          Sensor acquisition only; no model inference.
+  --live-bev-fusion      Per-mobility BEV inference + real Groth16 sharing + ego fusion.
+  --evaluate-bev         Same-frame CARLA GT comparison, evaluation-only sensors.
+  --bev-scene-cameras    Same-frame actual overhead RGB; requires --evaluate-bev.
+  --bev-video-seconds N  Capture pass-by then replay synchronized BEV/ZKP video; 8..30s.
+  --bev-video-anchor N   Pinned scenario anchor for the video (default: 1).
+  --bev-video-target X Y Resolve the video anchor near Scenic X Y, then pin IDs.
+  --report-dir P         Report root override; default _DAMOS/reports.
+  --bev-rounds N        BEV exchange count (default: 3).
+  --bev-radius-m N      Ego-neighbour radius (default: 60; 0: all).
+  --bev-timeout-seconds N
+                        Failure deadline, NOT performance target (default: 60; target: 18s).
   --live-ego-sharing     Front-only live image sharing, real Groth16, ego timings.
                           Detector is not connected. Extends Scenic lifetime
                           until sharing rounds finish; no full 18s pass verdict.
@@ -275,6 +312,28 @@ while [[ $# -gt 0 ]]; do
       SELECTED_SCENARIO="$2"
       shift 2
       ;;
+    --collect-bev-dataset)
+      COLLECT_BEV_DATASET=1
+      ATTACH_BEV_SENSORS=1
+      shift
+      ;;
+    --bev-dataset-root)
+      BEV_DATASET_ROOT="$2"
+      shift 2
+      ;;
+    --bev-dataset-split)
+      BEV_DATASET_SPLIT="$2"
+      shift 2
+      ;;
+    --scene-seed)
+      SCENE_SEED="$2"
+      shift 2
+      ;;
+    --compare-bev-inputs)
+      COMPARE_BEV_INPUTS=1
+      ATTACH_BEV_SENSORS=1
+      shift
+      ;;
     --static-ego)
       STATIC_EGO=1
       shift
@@ -355,9 +414,59 @@ while [[ $# -gt 0 ]]; do
       SAVE_EGO_FAULT_REPORT=1
       shift
       ;;
+    --attach-bev-sensors)
+      ATTACH_BEV_SENSORS=1
+      shift
+      ;;
+    --save-bev-inputs)
+      ATTACH_BEV_SENSORS=1
+      SAVE_BEV_INPUTS=1
+      shift
+      ;;
     --live-ego-sharing)
       LIVE_EGO_SHARING=1
       shift
+      ;;
+    --live-bev-fusion)
+      LIVE_BEV_FUSION=1
+      ATTACH_BEV_SENSORS=1
+      shift
+      ;;
+    --evaluate-bev)
+      EVALUATE_BEV=1
+      shift
+      ;;
+    --bev-scene-cameras)
+      BEV_SCENE_CAMERAS=1
+      shift
+      ;;
+    --bev-video-seconds)
+      BEV_VIDEO_SECONDS="$2"
+      shift 2
+      ;;
+    --bev-video-anchor)
+      BEV_VIDEO_ANCHOR="$2"
+      shift 2
+      ;;
+    --bev-video-target)
+      BEV_VIDEO_TARGET="$2 $3"
+      shift 3
+      ;;
+    --report-dir)
+      REPORT_DIR="$2"
+      shift 2
+      ;;
+    --bev-rounds)
+      BEV_ROUNDS="$2"
+      shift 2
+      ;;
+    --bev-radius-m)
+      BEV_RADIUS_M="$2"
+      shift 2
+      ;;
+    --bev-timeout-seconds)
+      BEV_TIMEOUT_SECONDS="$2"
+      shift 2
       ;;
     --sharing-rounds)
       SHARING_ROUNDS="$2"
@@ -465,6 +574,73 @@ while [[ $# -gt 0 ]]; do
 done
 
 sharing_args=()
+bev_args=()
+seed_args=()
+if [[ -n "$SCENE_SEED" ]]; then
+  seed_args=(--scene-seed "$SCENE_SEED")
+fi
+if [[ "$COLLECT_BEV_DATASET" -eq 1 ]]; then
+  if [[ "$COMPARE_BEV_INPUTS" -eq 1 || "$LIVE_BEV_FUSION" -eq 1 || "$SAVE_BEV_INPUTS" -eq 1 || "$EVALUATE_BEV" -eq 1 || -z "$BEV_DATASET_ROOT" || -z "$SCENE_SEED" ]]; then
+    echo "Dataset collection needs its own mode, --bev-dataset-root and --scene-seed." >&2
+    exit 1
+  fi
+fi
+if [[ "$COMPARE_BEV_INPUTS" -eq 1 && ( "$LIVE_BEV_FUSION" -eq 1 || "$SAVE_BEV_INPUTS" -eq 1 || "$EVALUATE_BEV" -eq 1 ) ]]; then
+  echo "Run --compare-bev-inputs separately from live fusion/evaluation/input-saving modes." >&2
+  exit 1
+fi
+if [[ "$EVALUATE_BEV" -eq 1 && "$LIVE_BEV_FUSION" -ne 1 ]]; then
+  echo "--evaluate-bev requires --live-bev-fusion." >&2
+  exit 1
+fi
+if [[ "$BEV_SCENE_CAMERAS" -eq 1 && "$EVALUATE_BEV" -ne 1 ]]; then
+  echo "--bev-scene-cameras requires --evaluate-bev." >&2
+  exit 1
+fi
+if [[ "$LIVE_BEV_FUSION" -eq 1 || "$COMPARE_BEV_INPUTS" -eq 1 || "$COLLECT_BEV_DATASET" -eq 1 ]]; then
+  if [[ "$SAVE_BEV_INPUTS" -eq 1 ]]; then
+    echo "Run --live-bev-fusion separately from --save-bev-inputs." >&2
+    exit 1
+  fi
+  PYTHON_BIN="${DAMOS_BEV_PYTHON:-/home/vvu/vv/DAMOS/.venvs/bev/bin/python}"
+  export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
+fi
+if [[ "$ATTACH_BEV_SENSORS" -eq 1 ]]; then
+  if [[ "$HEADLESS" -eq 1 || "$ATTACH_OBSERVER_CAMERAS" -ne 1 || "$OBSERVER_MODE" -ne 1 || "$REALTIME_FACTOR" == "0" ]]; then
+    echo "BEV sensors need RGB rendering, observer mode and --realtime-factor 1.0; use --offscreen, not --headless." >&2
+    exit 1
+  fi
+  if [[ "$LIVE_EGO_SHARING" -eq 1 || "$EGO_FRONT_CAMERA_FAULT" != "none" || "$SAVE_EGO_FAULT_REPORT" -eq 1 || "$SAVE_ACTOR_CAMERA_CAPTURES" -eq 1 || "$SAVE_OBSERVER_SCENE_CAPTURES" -eq 1 || "$VERIFY_S1_CROSSING_AUTOPILOT" -eq 1 ]]; then
+    echo "Run BEV acquisition separately from legacy sharing/fault/capture modes." >&2
+    exit 1
+  fi
+  bev_args=(--attach-bev-sensors)
+  if [[ "$COLLECT_BEV_DATASET" -eq 1 ]]; then
+    bev_args+=(--collect-bev-dataset --bev-dataset-root "$BEV_DATASET_ROOT"
+      --bev-dataset-split "$BEV_DATASET_SPLIT" --bev-rounds "$BEV_ROUNDS")
+  fi
+  if [[ "$COMPARE_BEV_INPUTS" -eq 1 ]]; then
+    bev_args+=(--compare-bev-inputs --bev-rounds "$BEV_ROUNDS")
+  fi
+  if [[ "$SAVE_BEV_INPUTS" -eq 1 ]]; then
+    bev_args+=(--save-bev-inputs)
+  fi
+  if [[ "$LIVE_BEV_FUSION" -eq 1 ]]; then
+    bev_args+=(--live-bev-fusion --bev-rounds "$BEV_ROUNDS"
+      --bev-radius-m "$BEV_RADIUS_M" --bev-timeout-seconds "$BEV_TIMEOUT_SECONDS")
+    if [[ "$EVALUATE_BEV" -eq 1 ]]; then
+      bev_args+=(--evaluate-bev)
+    fi
+    if [[ "$BEV_SCENE_CAMERAS" -eq 1 ]]; then
+      bev_args+=(--bev-scene-cameras)
+    fi
+    bev_args+=(--bev-video-seconds "$BEV_VIDEO_SECONDS" --bev-video-anchor "$BEV_VIDEO_ANCHOR")
+    if [[ -n "$BEV_VIDEO_TARGET" ]]; then
+      read -r video_x video_y <<< "$BEV_VIDEO_TARGET"
+      bev_args+=(--bev-video-target "$video_x" "$video_y")
+    fi
+  fi
+fi
 if [[ "$SAVE_SHARING_VIDEO" -eq 1 && "$LIVE_EGO_SHARING" -ne 1 ]]; then
   echo "--save-sharing-video requires --live-ego-sharing." >&2
   exit 1
@@ -595,8 +771,11 @@ if [[ "$ATTACH_OBSERVER_CAMERAS" -eq 0 ]]; then
 fi
 
 report_args=()
+if [[ -n "$REPORT_DIR" ]]; then
+  report_args+=(--report-dir "$REPORT_DIR")
+fi
 if [[ "$SAVE_TRAJECTORY_REPORT" -eq 0 ]]; then
-  report_args=(--no-trajectory-report)
+  report_args+=(--no-trajectory-report)
 fi
 
 actor_camera_capture_args=()
@@ -682,6 +861,7 @@ for run_index in $(seq 1 "$RUNS"); do
     "${static_ego_args[@]}" \
     "${ego_start_args[@]}" \
     "${realtime_args[@]}" \
+    "${seed_args[@]}" \
     "${mode_args[@]}" \
     --min-move-meters "$MIN_MOVE_METERS" \
     --max-observer-anchor-distance "$MAX_OBSERVER_ANCHOR_DISTANCE" \
@@ -701,6 +881,7 @@ for run_index in $(seq 1 "$RUNS"); do
     "${actor_camera_capture_args[@]}" \
     "${ego_fault_report_args[@]}" \
     "${sharing_args[@]}" \
+    "${bev_args[@]}" \
     "${observer_scene_capture_args[@]}" \
     "${capture_args[@]}" \
     "${s1_verify_args[@]}"

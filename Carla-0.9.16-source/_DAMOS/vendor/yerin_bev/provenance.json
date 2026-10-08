@@ -1,0 +1,29 @@
+{
+  "source": "Yerin carla_bev_handover, code/src_2 and code/carla",
+  "source_files_unchanged": true,
+  "sha256": {
+    "models_bev.py": "2f3cb4dd8f2fb36fcaaca9cfb83efafd1f2978a1ab34a245fe0aaab5b2238ed9",
+    "baseline_occprophet_refiner.py": "cb7106d8f9b27ee34b22d024cae9f6d3664fad90501b6e43124c8536e94652a4",
+    "prism_v2.json": "7a81613b67cda3f18d9e62b37756c2a76662222ae881bd717aacc6cc84a1d5ea",
+    "data_bev.py": "638d82e1f15787c0c071121e0a348e86ca774a5f8750593113c1f2005351fec5",
+    "data_bev_carla.py": "cf308a85d8932dc1675c8b9446133942235c1f9910ff4f0b22ba2cd537db24a7",
+    "carla_gt_core.py": "10228195dc9b25d41b49147e47108ba942d74732b8fccf02a030217222b881e4",
+    "viz_carla.py": "2adfe5266f6ceb91c1a48fa876b6b73a066c913f511898cad119647ad111b37d"
+  },
+  "checkpoint": {
+    "name": "best_people_cam+lidar_scratch_100k.pt",
+    "sha256": "c33a825ac168f3f7e1b271219a36af99d8f17d3854a76ee00a586967e338a962",
+    "step": 100000,
+    "git_included": false
+  },
+  "adapter": {
+    "strict_state_loading": true,
+    "tc_stop": "enabled as checkpoint and effective training configuration",
+    "curriculum_step": "restore checkpoint step; not default step zero",
+    "T_past": 4,
+    "T_future": 1,
+    "camera_count": 6,
+    "lidar_channels": 6,
+    "ground_truth_model_input": false
+  }
+}

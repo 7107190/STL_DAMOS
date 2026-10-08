@@ -1,0 +1,8 @@
+{
+  "version": "ordinary-lidar-ground-guard-v1",
+  "height_m": 0.12,
+  "span_m": 0.08,
+  "below_plane_m": 0.12,
+  "protect_radius_cells": 1,
+  "protect_mode": "vulnerable"
+}

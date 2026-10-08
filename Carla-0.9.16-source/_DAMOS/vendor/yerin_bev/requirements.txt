@@ -1,0 +1,10 @@
+# Supplemental packages for the vvu torch 2.7.0+cu128 / Python 3.10 environment.
+# Keep the existing CARLA, torch, torchvision, numpy, OpenCV and Pillow installs.
+timm==1.0.15
+einops==0.8.1
+ninja==1.11.1.4
+PyYAML==6.0.2
+huggingface-hub==0.30.2
+safetensors==0.5.3
+transformers==4.51.3
+tokenizers==0.21.4

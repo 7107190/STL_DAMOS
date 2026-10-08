@@ -1,190 +1,58 @@
-# DAMOS Custom Walkers
+# DAMOS 런타임
 
-This folder contains the DAMOS-specific runtime scripts, custom walker helpers,
-Scenic integration launchers, and active scenario definitions.
+**현재 기준: 비정상 상황 anchor당 감시자 1대, ego ↔ 근처 감시자 BEV 공유.**
 
-## Active Workspace
+프로젝트 상태·권장 명령은 [루트 README](../../README.md), 설치·옵션·결과 파일은 [사용법](../../docs/usage.md) 기준입니다. 이 파일은 런타임 내부 경로만 안내합니다.
 
-All ongoing work should be treated as running on `Host vvu`.
+## 작업 위치
 
-Canonical workspace root:
+| 항목 | 경로 |
+|---|---|
+| 런타임 | `/home/vvu/vv/DAMOS/Carla-0.9.16-source/_DAMOS` |
+| 명령 실행 위치 | `/home/vvu/vv/DAMOS/Carla-0.9.16-source` |
+| Git mirror | `/home/vvu/vv/DAMOS/_git/STL_DAMOS` |
+| 기본 Python | `/home/vvu/anaconda3/envs/carla4/bin/python` |
+| BEV Python | `/home/vvu/vv/DAMOS/.venvs/bev/bin/python` |
 
-- `/home/vvu/vv/DAMOS`
+## 구성
 
-Canonical DAMOS workspace inside the source tree:
+| 디렉터리 | 역할 |
+|---|---|
+| `_scenarios/` | S1~S9 Scenic 정의·동시 compose |
+| `scripts/` | 서버 실행·actor 배치·센서·추론·공유·평가·보고서 |
+| `tests/` | BEV·공유·시각화 회귀 시험 |
+| `vendor/yerin_bev/` | 제공 인지 원본·requirements·출처 해시 |
+| `vendor/damos_zkp/` | Groth16 원본 회로·키·WASM·Node backend |
+| `custom_walkers/`, `unreal/`, `carla_import/` | 환경·asset import·CARLA helper |
+| `models/`, `datasets/`, `reports/`, `logs/` | 운영/생성 자료, Git 제외 |
 
-- `/home/vvu/vv/DAMOS/Carla-0.9.16-source/_DAMOS`
+Unreal C++ overlay는 `../Unreal/CarlaUE4/Plugins/Carla/Source/Carla/Damos/`에 있습니다. 배달로봇 카메라 갱신 수정은 `DamosVisibilityLockComponent.cpp`; CARLA 모듈 재컴파일·서버 재시작 필요. Python 복사만으로 적용되지 않습니다.
 
-Compatibility links still exist for older commands:
+## 실행 경로
 
-- `/home/vvu/vv/Carla-0.9.16`
-- `/home/vvu/vv/Carla-0.9.16-source`
-- `/home/vvu/vv/UnrealEngine_4.26`
-- `/home/vvu/vv/Carla-0.9.16/_DAMOS`
+`run_scenic_custom_walkers_town10hd.sh` → `scenic_custom_walker_injector.py`:
 
-`Scenic/` inside the source tree is the Scenic checkout/path used by the wrappers so
-map assets and scenario-relative paths still work.
+1. Town10HD_Opt 서버 준비, Scenic 원래 ego·비정상 actor 생성 완료 대기.
+2. 원래 actor ID로 anchor 확정, anchor당 휴머노이드/배달로봇 중 1대 인도 배치·방향 설정.
+3. `sensor_config.txt`에 따라 RGB 6개 부착. BEV 모드에는 일반 LiDAR 추가.
+4. 선택 모드 수행 후 report 저장·자원 해제.
 
-## Implemented Custom Walkers
+| 모드 | 옵션·역할 |
+|---|---|
+| 기본 | 배치·카메라·coverage 확인 |
+| 입력 저장 | `--save-bev-inputs`, 동일 4프레임 모델 입력 저장 |
+| 이미지 공유 | `--live-ego-sharing`, 정면 1장 공유·ZKP |
+| BEV 공유 | `--live-bev-fusion`, 추론·ZKP·ego 합병·존재 판정 |
+| 평가 추가 | `--evaluate-bev`, 별도 GT 센서로 원래 actor·프레임 대조 |
+| 영상 | `run_bev_passby_sweep.py`, 센서 취득 후 오프라인 모델/ZKP 재생 |
 
-- `walker.pedestrian.damos_deliverybot`
-- `walker.pedestrian.damos_humanoid`
+이미지 공유·BEV 공유·고장 보고서의 모드 제약은 wrapper와 사용법 참조. 감시자끼리 통신 없음. `--max-anchor-pairs`는 legacy 이름이며 최대 anchor 수 제한, 두 감시자 쌍을 뜻하지 않습니다.
 
-Current behavior:
+## 보고서 해석
 
-- `damos_deliverybot` uses wheelchair-capable walker behavior so it can travel on sidewalks.
-- `damos_humanoid` uses pedestrian walker behavior with runtime pose sync from the hidden CARLA base walker.
-- Town01 demo mode uses fixed spawn points so both walkers are easy to find visually.
-- Scenic integration injects custom walkers near Scenic-created anchors instead of random map positions.
-- Scenic integration now treats those custom walkers as fixed DAMOS observer nodes by default:
-  they spawn near abnormal-situation anchors, face the anchor, and provide coverage metadata
-  for ego/custom-walker cooperation.
-
-## One-command Town01 Demo
-
-From the source-build repository root:
-
-```bash
-_DAMOS/scripts/run_custom_walkers_demo.sh
-```
-
-This launcher:
-
-- starts or reuses the Town01 source-build server on port `2000`
-- waits for the server to become ready
-- spawns the DAMOS walkers
-- moves the spectator to a fixed demo view
-
-## Scenic Integration Check
-
-Without editing `S_.scenic`, you can run the Town10HD Scenic scenario family and inject
-custom walkers from the outside:
-
-```bash
-_DAMOS/scripts/run_scenic_custom_walkers_town10hd.sh --restart --headless
-```
-
-For a GUI-free pass/fail check, run:
-
-```bash
-_DAMOS/scripts/check_scenic_observers_headless.sh --port 2212 --scenic-time 8
-```
-
-To force one abnormal scenario instead of the default random selection:
-
-```bash
-_DAMOS/scripts/check_scenic_observers_headless.sh --port 2215 --scenic-time 8 --selected-scenario S4
-```
-
-This starts the same headless integration, then prints a table summary from the
-latest JSON report for that port.
-
-Use `--max-anchor-pairs N` only when you intentionally want to cap observer pairs.
-When omitted, every semantic anchor candidate is covered.
-
-This launcher:
-
-- starts or reuses the source-build server on `Town10HD_Opt`
-- runs `_DAMOS/_scenarios/S_.scenic`
-- waits for Scenic to spawn the `ego`
-- waits for Scenic support actors to appear
-- reduces Scenic support actors into semantic abnormal anchors and places one
-  `damos_humanoid` plus one `damos_deliverybot` at every semantic anchor by default
-- attaches six RGB observer cameras to each custom observer using the walker
-  camera mount positions from `/home/vvu/vv/DAMOS/sensor_config.txt`
-- validates observer placement and yaw toward each Scenic anchor
-- saves trajectory PNG, focus PNG, and JSON reports under `_DAMOS/reports`
-
-The default mode matches the current DAMOS Track 1 idea: the custom walkers do not
-need to travel through the scene. They act as extra observer nodes near the Scenic
-abnormal situation and share their local view/coverage metadata with `ego`.
-
-Movement is still available as a smoke test for walker assets:
-
-```bash
-_DAMOS/scripts/run_scenic_custom_walkers_town10hd.sh --restart --headless --walker-mode
-```
-
-The launcher keeps `S_.scenic` unchanged and passes the active map through CLI overrides:
-
-- `carla_map=Town10HD_Opt`
-- `map=Scenic/Maps/Town10HD_Opt.xodr`
-- `reload_world=0`
-
-## Reports
-
-The saved trajectory reports include:
-
-- CARLA map context: lane surfaces, lane edges/centerlines, and building footprints
-- Scenic `ego` path
-- `damos_deliverybot` path
-- `damos_humanoid` path
-- selected Scenic anchor markers
-- Scenic-created pedestrian, bicycle, and vehicle paths when available
-- start/end labels for `ego`, `deliverybot`, and `humanoid`
-- cooperation metadata in JSON form
-- observer-mode metadata: observer-to-anchor distance, yaw error toward the anchor,
-  and ego-to-anchor distance
-- observer camera metadata: six camera names, relative transforms, and attached
-  CARLA sensor actor ids for each observer
-
-Recent validated headless report example:
-
-- `_DAMOS/reports/scenic_custom_walkers_Town10HD_Opt_S7_S4_S5_S1_port2204_20260422-203628.json`
-
-## Default Root Resolution
-
-By default the launchers resolve their roots from the script location:
-
-- Unreal server: `/home/vvu/vv/DAMOS/UnrealEngine_4.26`
-- CARLA source tree: `/home/vvu/vv/DAMOS/Carla-0.9.16-source`
-- Python: `/home/vvu/anaconda3/envs/carla4/bin/python`
-
-You can still override Python when needed:
-
-```bash
-CARLA_PYTHON_BIN=/path/to/python _DAMOS/scripts/run_custom_walkers_demo.sh
-```
-
-## Important Files
-
-- `_DAMOS/scripts/run_custom_walkers_demo.sh`
-- `_DAMOS/scripts/run_scenic_custom_walkers_town10hd.sh`
-- `_DAMOS/scripts/check_scenic_observers_headless.sh`
-- `_DAMOS/scripts/verify_observer_report.py`
-- `_DAMOS/scripts/run_scenic_with_custom_walkers.py`
-- `_DAMOS/scripts/custom_walker_runtime.py`
-- `_DAMOS/scripts/scenic_custom_walker_injector.py`
-- `_DAMOS/unreal/import_damos_walkers.py`
-- `_DAMOS/custom_walkers/ue4_env.sh`
-- `Unreal/CarlaUE4/Plugins/Carla/Source/Carla/Damos/DamosWalkerFactory.cpp`
-- `Unreal/CarlaUE4/Plugins/Carla/Source/Carla/Damos/DamosBoneMapPoseComponent.cpp`
-
-## Reusable Entry Points
-
-Runtime helper:
-
-1. `connect_to_world(...)`
-2. `spawn_all_custom_walkers(...)`
-3. `orient_spawned_walkers_to_anchors(...)`
-4. `stop_spawned_walker_controllers(...)`
-5. `initialize_custom_walker_movement(...)`
-6. `run_custom_walker_movement(...)`
-7. `destroy_spawned_walkers(...)`
-
-Scenic-side injector:
-
-1. Build a `ScenicCustomWalkerConfig`
-2. Call `run_scenic_custom_walker_integration(config)`
-3. Reuse the returned `ScenicCustomWalkerResult` for logging or higher-level control
-
-## Current Development Direction
-
-The workspace is already past the environment-setup stage.
-The main remaining work is DAMOS behavior integration, for example:
-
-- ego/custom-observer cooperation data flow
-- mapping observer metadata into 6-frame image buffering / occupancy inputs
-- connecting attached observer camera streams to the 6-frame image buffer
-- attaching the injector to the real DAMOS execution pipeline
-- turning observer JSON/PNG output into experiment-facing reports
+- 기본 저장 위치: `_DAMOS/reports/`.
+- BEV `pipeline_budget_pass`: 합병·존재 판정까지 18초 이내 여부만 표시.
+- `metric2_pass=null`: 공식 성능지표 합격 미확정.
+- 영상의 흰 대상 윤곽·확대창: GT 안내, 모델 검출 상자 아님.
+- 주황색: 장애물 예측. 빨간 EGO: 기록 위치·방향, 인지 출력 아님.
+- 과거 배달로봇 RGB 정지 결과는 최신 협력 성능 증빙에서 제외. 정정·재취득 범위는 루트 README 참조.

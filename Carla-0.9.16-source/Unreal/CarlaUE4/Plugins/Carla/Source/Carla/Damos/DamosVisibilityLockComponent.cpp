@@ -1,4 +1,5 @@
 #include "Carla/Damos/DamosVisibilityLockComponent.h"
+#include "Carla/Sensor/Sensor.h"
 
 #include "Components/PrimitiveComponent.h"
 #include "GameFramework/Actor.h"
@@ -23,8 +24,9 @@ namespace
         continue;
       }
 
-      PrimitiveComponent->SetVisibility(false, true);
-      PrimitiveComponent->SetHiddenInGame(true, true);
+      // Hide mesh visuals, not child scene-capture components.
+      PrimitiveComponent->SetVisibility(false, false);
+      PrimitiveComponent->SetHiddenInGame(true, false);
       PrimitiveComponent->SetCastShadow(false);
     }
   }
@@ -33,12 +35,13 @@ namespace
       AActor* Actor,
       const TFunctionRef<bool(const UPrimitiveComponent*)>& ShouldKeepComponent)
   {
-    HidePrimitiveVisualsOnActor(Actor, ShouldKeepComponent);
-
-    if (Actor == nullptr)
+    // Sensors must remain visible for CaptureScene() to refresh their targets.
+    if ((Actor == nullptr) || Actor->IsA<ASensor>())
     {
       return;
     }
+
+    HidePrimitiveVisualsOnActor(Actor, ShouldKeepComponent);
 
     TArray<AActor*> AttachedActors;
     Actor->GetAttachedActors(AttachedActors);
