@@ -52,6 +52,7 @@ def _worker(node, commands, results, timeout_s, affinity):
             return
         verifier = BEVVerifier(backend, node, settings["commitments"], settings["session_id"],
                                settings["actor_ids"], max_age_ms=int(timeout_s*1000))
+        service_cache = {}
         while True:
             task = commands.get()
             if task is None:
@@ -74,6 +75,11 @@ def _worker(node, commands, results, timeout_s, affinity):
                 import torch
                 torch.cuda.empty_cache()
                 results.put({"event": "release", "node_id": node})
+                continue
+            if task["action"] == "service_round":
+                from bev_resilience import run_service_round
+                results.put(run_service_round(node, task, settings, predictor, backend, secret,
+                    commitment, verifier, inbox, service_cache, _inputs))
                 continue
             started = task["started_ns"]
             deadline_ns = started + int(timeout_s*1e9)
@@ -302,3 +308,18 @@ class BEVMesh:
         for command in self.commands.values():
             command.cancel_join_thread(); command.close()
         self.results.cancel_join_thread(); self.results.close()
+
+    def service_exchange(self, tasks, round_id, folder, faults=None, timeout_s=8.):
+        if (set(tasks) != self.loaded or "ego" not in tasks or len(tasks) < 2
+                or len({tuple(t["window"]) for t in tasks.values()}) != 1
+                or not 0 < timeout_s <= self.timeout_s):
+            raise ValueError("Service trial needs common frames and preloaded peers")
+        graph = {node: ([n for n in sorted(tasks) if n != "ego"] if node == "ego" else ["ego"])
+                 for node in tasks}
+        started = time.perf_counter_ns()
+        for node, sample in tasks.items():
+            self.commands[node].put({"action": "service_round", "input": sample, "graph": graph,
+                "round_id": round_id, "started_ns": started,
+                "save_dir": str(Path(folder) / node), "service_timeout_s": timeout_s,
+                "fault": (faults or {}).get(node, {})})
+        return self._collect("service_round", list(tasks), 2 * timeout_s + 30)

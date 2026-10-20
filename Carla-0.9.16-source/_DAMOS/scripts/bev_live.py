@@ -63,6 +63,12 @@ def save_comparison(folder, nodes, record):
 def run_live_bev(rig, report_dir, *, rounds=3, radius_m=60., timeout_s=60.,
                  scenic_proc=None, scenario_labels=(), on_tick=None, logger=print,
                  evaluate=False, anchor_assignments=(), scene_cameras=False):
+    import os
+    experiment = os.environ.get("DAMOS_RESILIENCE_PLAN")
+    if experiment:
+        from carla_resilience_trial import run_trial
+        return run_trial(rig, report_dir, Path(experiment), scenic_proc=scenic_proc,
+                         assignments=anchor_assignments, on_tick=on_tick, logger=logger)
     if scene_cameras and not evaluate:
         raise ValueError("Scene cameras require same-frame BEV evaluation.")
     folder = Path(report_dir) / ("live_bev_"+datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S_%fZ"))
