@@ -12,8 +12,9 @@ import socket
 import subprocess
 import sys
 
-CASE_NAMES = ["front_blackout", "lidar_missing", "sensor_delay", "output_freeze", "link_drop",
-              "packet_tamper", "packet_replay", "invalid_proof", "rgb_lidar_failure", "compound_link_sensor"]
+from fault_catalog import PIPELINE_CASE_NAMES
+
+CASE_NAMES = list(PIPELINE_CASE_NAMES)
 
 
 def write_json(path, value):
@@ -63,7 +64,8 @@ def main():
     output.mkdir(parents=True, exist_ok=False)
     files = [Path(__file__), *[root / "_DAMOS/scripts" / n for n in
         ("bev_resilience.py", "carla_resilience_trial.py", "bev_mesh.py", "bev_live.py",
-         "bev_protocol.py", "bev_fusion.py", "bev_model_runtime.py", "bev_sensor_rig.py")]]
+         "bev_protocol.py", "bev_fusion.py", "bev_model_runtime.py", "bev_sensor_rig.py",
+         "fault_catalog.py")]]
     source = freeze_source(files, output)
     write_json(output / "protocol.json", {"created_utc": datetime.now(timezone.utc).isoformat(),
         "cases": args.cases, "weathers": args.weathers, "scenario": "S5", "ego_only": True,

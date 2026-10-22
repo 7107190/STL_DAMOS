@@ -21,6 +21,8 @@ import carla
 import cv2
 import numpy as np
 
+from fault_catalog import REPORT_FAULTS, catalog_counts, resolve_fault
+
 from custom_walker_runtime import (
     CustomWalkerAnchor,
     DELIVERYBOT_ID,
@@ -3759,27 +3761,27 @@ def make_fault_grid_tile(record, label, *, tile_width=560, tile_height=390):
 
 
 def save_ego_fault_3x3_grid(path, records):
-    by_type = {
-        str(record.get("fault_type")): record
-        for record in records
-        if record.get("status") == "saved"
-    }
-    ordered_faults = (
-        ("camera_blackout", "1. Camera blackout"),
-        ("camera_degradation", "2. Camera degradation"),
-        ("camera_misalignment", "3. Camera misalignment"),
-        ("lidar_noise", "4. LiDAR noise"),
-        ("lidar_dropout", "5. LiDAR dropout"),
-        ("lidar_outlier", "6. LiDAR outlier"),
-        ("sensor_delay", "7. Sensor delay"),
-        ("module_stop", "8. Module stop/freeze"),
-        ("stale_perception_output", "9. Stale output"),
-    )
+    by_type = {}
+    for record in records:
+        if record.get("status") != "saved":
+            continue
+        name = str(record.get("fault_type"))
+        if name == "ego_front_camera_current":
+            by_type.setdefault(name, record)
+            continue
+        try:
+            fault = resolve_fault(name)
+        except KeyError:
+            continue
+        if fault.report_key is not None:
+            by_type.setdefault(fault.report_key, record)
+    ordered_faults = [("ego_front_camera_current", "Normal reference (not a fault)")]
+    ordered_faults.extend((f.report_key, f"{f.fault_id}. {f.label}") for f in REPORT_FAULTS)
     tiles = [
         make_fault_grid_tile(by_type.get(fault_type), label)
         for fault_type, label in ordered_faults
     ]
-    rows = [np.hstack(tiles[index : index + 3]) for index in range(0, 9, 3)]
+    rows = [np.hstack(tiles[index : index + 3]) for index in range(0, len(tiles), 3)]
     grid = np.vstack(rows)
     save_rgb_array(path, grid)
     return True
@@ -3998,7 +4000,7 @@ def save_ego_camera_temporal_fault_report(
         )
 
         freeze_frame_no, freeze_rgb = frames[min(2, len(frames) - 1)]
-        stopped_output = add_fault_overlay(freeze_rgb, "MODULE STOP: FROZEN OUTPUT")
+        stopped_output = add_fault_overlay(freeze_rgb, "OUTPUT HELD: OLD FRAME")
         module_path = capture_dir / "05_ego_module_stop_freeze.png"
         save_rgb_panel(
             module_path,
@@ -4009,8 +4011,8 @@ def save_ego_camera_temporal_fault_report(
         )
         records.append(
             {
-                "fault_type": "module_stop",
-                "label": "Ego module stop/freeze",
+                "fault_type": "output_freeze",
+                "label": "Ego held/stale output",
                 "path": str(module_path),
                 "frozen_frame": int(freeze_frame_no),
                 "current_frame": int(current_frame_no),
@@ -4018,25 +4020,6 @@ def save_ego_camera_temporal_fault_report(
             }
         )
 
-        stale_output = add_fault_overlay(delayed_rgb, "STALE OUTPUT: OLD PERCEPTION")
-        stale_path = capture_dir / "fault_09_stale_perception_output.png"
-        save_rgb_panel(
-            stale_path,
-            (
-                (f"Current input frame {current_frame_no}", current_rgb),
-                (f"Stale output frame {delayed_frame_no}", stale_output),
-            ),
-        )
-        records.append(
-            {
-                "fault_type": "stale_perception_output",
-                "label": "Stale perception output",
-                "path": str(stale_path),
-                "stale_frame": int(delayed_frame_no),
-                "current_frame": int(current_frame_no),
-                "status": "saved",
-            }
-        )
     except RuntimeError as exc:
         records.append(
             {
@@ -4086,6 +4069,16 @@ def save_ego_fault_report(
             config,
         )
     )
+    captured_fault_ids = set()
+    for record in records:
+        try:
+            fault = resolve_fault(str(record.get("fault_type")))
+        except KeyError:
+            continue
+        record["canonical_fault_id"] = fault.fault_id
+        record["implementation"] = "capture_illustration"
+        if record.get("status") == "saved":
+            captured_fault_ids.add(fault.fault_id)
 
     grid_3x3_path = capture_dir / "ego_fault_report_3x3.png"
     grid_3x3_saved = save_ego_fault_3x3_grid(grid_3x3_path, records)
@@ -4093,7 +4086,7 @@ def save_ego_fault_report(
         records.append(
             {
                 "fault_type": "fault_3x3_grid",
-                "label": "Ego HW/SW fault 3x3 grid",
+                "label": "Eight unique faults and one normal reference",
                 "path": str(grid_3x3_path),
                 "status": "saved",
             }
@@ -4123,6 +4116,9 @@ def save_ego_fault_report(
         "ego_actor_id": int(ego.id),
         "ego_type_id": str(ego.type_id),
         "capture_dir": str(capture_dir),
+        "fault_catalog_counts": catalog_counts(),
+        "captured_unique_faults": len(captured_fault_ids),
+        "normal_reference_is_fault": False,
         "records": records,
     }
     manifest_path.write_text(

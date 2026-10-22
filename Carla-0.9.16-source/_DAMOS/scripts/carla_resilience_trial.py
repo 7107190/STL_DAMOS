@@ -11,20 +11,9 @@ import numpy as np
 
 from bev_mesh import BEVMesh
 from bev_resilience import ServicePolicy
+from fault_catalog import pipeline_cases
 
-CASES = {
-    "front_blackout": ({"ego": {"input": "front_blackout"}}, "DEGRADED_COOPERATIVE"),
-    "lidar_missing": ({"ego": {"input": "lidar_missing"}}, "DEGRADED_COOPERATIVE"),
-    "sensor_delay": ({"ego": {"input": "sensor_delay"}}, "DEGRADED_COOPERATIVE"),
-    "output_freeze": ({"ego": {"input": "output_freeze"}}, "DEGRADED_COOPERATIVE"),
-    "link_drop": ({"observer": {"wire": "drop"}}, "SAFE_STOP"),
-    "packet_tamper": ({"observer": {"wire": "tamper"}}, "SAFE_STOP"),
-    "packet_replay": ({"observer": {"wire": "replay"}}, "SAFE_STOP"),
-    "invalid_proof": ({"observer": {"wire": "bad_proof"}}, "SAFE_STOP"),
-    "rgb_lidar_failure": ({"ego": {"input": "rgb_lidar_failure"}}, "DEGRADED_COOPERATIVE"),
-    "compound_link_sensor": ({"ego": {"input": "rgb_lidar_failure"},
-                              "observer": {"wire": "drop"}}, "SAFE_STOP"),
-}
+CASES = pipeline_cases()
 
 
 def write_json(path, value):

@@ -894,19 +894,37 @@ observer 종류를 고정하려면 다음 옵션을 사용합니다.
 
 ## HW/SW 고장상황 구현 범위
 
-현재 고장상황은 모두 ego 기준으로 적용하거나 시각화합니다. Camera fault 선택 기능은 ego 차량의 `cam_front` 하나에만 적용하고, observer camera와 ego의 나머지 camera는 정상으로 유지합니다. 아래 9개 항목은 고장 효과 보고서 범위이며 전체 모듈의 실제 고장·자동복구 검증과 구별합니다. 2026-10-14 별도 opt-in CARLA 시험에서 일부 센서 신호 소실·출력 지연/유지·통신 단절·패킷 공격·복합 고장의 유효 데이터 배제·협력 대체·서비스 복귀·별도 저속 제동 확인을 추가했습니다. 실행 방법·30개 조건 결과·한계는 [컨설팅 대응 기술문서](consulting_response.md) 참고. 일반 실행의 자동복구 기능으로 활성화되는 것은 아닙니다.
+2026-10-22 중복 통합 기준 **총 15종: 단일 13종·복합 2종**. 실제 파이프라인 검증 10종, 이미지·캡처 단계 5종. Ego 입력 고장 또는 Ego로 들어오는 감시자 데이터의 통신 고장 기준.
 
-| 분류 | 고장상황 | 적용 대상 | 구현 방식 |
-|---|---|---|---|
-| HW-like | Camera blackout | ego front camera | 카메라 신호를 검정 화면으로 대체 |
-| HW-like | Camera degradation | ego front camera | blur, occlusion, color failure, shaking 등 영상 품질 저하 |
-| HW-like | Camera misalignment | ego front camera | 카메라 fault 선택 지원; 3x3 보고서는 캡처 영상의 회전·이동으로 재현 |
-| HW-like | LiDAR noise | 캡처한 ego LiDAR | point cloud 좌표에 Gaussian noise를 적용한 보고서 |
-| HW-like | LiDAR dropout | 캡처한 ego LiDAR | point cloud 일부를 제거한 보고서 |
-| HW-like | LiDAR outlier | 캡처한 ego LiDAR | 가짜 point를 추가한 보고서 |
-| HW/SW 경계 | Sensor delay | 수집한 ego RGB 프레임 | 과거·현재 프레임 비교로 지연 출력 재현 |
-| SW-like | Module stop/freeze | ego RGB 기반 모의 출력 | 고정된 과거 프레임으로 출력 정지 재현; 실제 모듈 중지 아님 |
-| SW-like | Stale perception output | ego RGB 기반 모의 출력 | 오래된 프레임으로 출력 노후화 재현; 실제 인식 결과 연동 아님 |
+| ID | 고장상황 | 구현·검증 수준 |
+|---|---|---|
+| F01 | 정면 카메라 신호 소실 | 파이프라인 검증. Ego 정면 raw RGB를 0으로 대체 |
+| F02 | 카메라 품질 저하 | 이미지·뷰어 단계. blur·occlusion·color failure·shaking을 한 유형으로 집계 |
+| F03 | 카메라 방향 틀어짐 | 이미지·센서 각도 변경 캡처. 인지·ZKP 경로 미검증 |
+| F04 | LiDAR 좌표 노이즈 | 이미지 단계. 수집한 point cloud에 Gaussian noise |
+| F05 | LiDAR 일부 포인트 누락 | 이미지 단계. 일부 점 제거 |
+| F06 | LiDAR 이상 포인트 추가 | 이미지 단계. 가짜 점 추가 |
+| F07 | LiDAR 전체 데이터 소실 | 파이프라인 검증. raw LiDAR 버퍼 비움 |
+| F08 | 센서 입력 지연 | 파이프라인 검증. 실제 과거 입력 유지 |
+| F09 | 인지 출력 고정·오래된 출력 유지 | 파이프라인 검증. 실제 과거 모델 출력 유지. OS 프로세스 중지 아님 |
+| F10 | 감시자 송신 단절 | 파이프라인 검증. 실제 전송 생략 |
+| F11 | 전송 본문 변조 | 파이프라인 검증. 증명 생성 후 본문 변경 |
+| F12 | 과거 패킷 재전송 | 파이프라인 검증. 이전 실제 본문·증명 재사용 |
+| F13 | ZKP 증명 손상 | 파이프라인 검증. 실제 생성 증명 변경 |
+| F14 | RGB·LiDAR 동시 소실 | 파이프라인 검증. 복합 고장 |
+| F15 | RGB·LiDAR 소실+감시자 송신 단절 | 파이프라인 검증. 복합 고장 |
+
+기존 보고서의 `module_stop`·`stale_perception_output`은 현재 구현상 과거 출력 유지이므로 F09로 통합. 과거 이름은 `fault_catalog.py`에서 F09 별칭으로 해석하며 신규 보고서에서 따로 생성·집계하지 않음. 일부 점 누락(F05)과 데이터 전체 소실(F07)은 다른 조건으로 유지.
+
+중복 통합 후 보고서 고장 8종 + 파이프라인 시험 10종 - 공통 3종(F01·F08·F09) = 15종. 정상 `none`과 비교용 정상 화면은 고장 수에 미산입.
+파이프라인 검증 근거는 2026-10-14 CARLA S5 × 맑은 낮·폭우·야간의 30개 조건. 유효 데이터 배제·협력 대체·서비스 복귀·별도 저속 제동 확인이며, 고장 상태의 이상상황 탐지정확도 검증과 구분. 실행 방법·결과·한계는 [컨설팅 대응 기술문서](consulting_response.md) 참고. 일반 실행의 자동복구 기능으로 활성화되는 것은 아님.
+
+통합 목록 확인(CARLA 서버 실행 불필요):
+
+```bash
+cd /home/vvu/vv/DAMOS/Carla-0.9.16-source
+/home/vvu/vv/DAMOS/.venvs/bev/bin/python _DAMOS/scripts/fault_catalog.py
+```
 
 Camera fault 선택값:
 
@@ -929,7 +947,7 @@ Camera fault 사용 예시:
 
 보고서용 이미지는 ego 기준으로 생성합니다. 다음 옵션을 추가하면 ego의 임시 LiDAR와 전방 RGB 센서(기존 센서가 없으면 임시 생성)에서 데이터를 수집해 고장 효과 이미지를 저장합니다.
 
-카메라 3종은 수집 영상 변형, LiDAR 3종은 수집 point cloud 변형, 지연·정지·오래된 출력은 수집한 과거 프레임 비교로 재현합니다. 실제 인식 모듈을 중지하거나 제어 입력을 지연시키는 시험은 아닙니다. 3x3 이미지 생성 성공은 고장 복구 또는 18초 처리 성능의 달성 증빙이 아닙니다.
+카메라 3종은 수집 영상 변형, LiDAR 3종은 수집 point cloud 변형, 입력 지연·출력 유지는 수집한 과거 프레임 비교로 재현합니다. 중복 출력 항목을 합쳐 **고장 8종 + 정상 비교 화면 1개**를 3x3에 표시합니다. 이 보고서 자체는 인지 파이프라인 시험이 아니며 실제 인식 모듈을 중지하거나 제어 입력을 지연시키지 않습니다. 이미지 생성 성공은 고장 복구 또는 18초 처리 성능의 달성 증빙이 아닙니다.
 
 ```bash
 --save-ego-fault-report
@@ -942,10 +960,12 @@ Camera fault 사용 예시:
 | `01_ego_lidar_clean.png` | ego-local LiDAR 정상 point cloud |
 | `02_ego_lidar_noise_dropout_outliers.png` | Gaussian noise, dropout, outlier가 섞인 LiDAR |
 | `04_ego_sensor_delay_5_frames.png` | 현재 ego front RGB와 지연된 frame 비교 |
-| `05_ego_module_stop_freeze.png` | 현재 입력과 고정된 과거 프레임을 비교한 모듈 출력 정지 재현 |
-| `fault_09_stale_perception_output.png` | 현재 입력과 오래된 프레임을 비교한 출력 노후화 재현 |
-| `ego_fault_report_3x3.png` | 고장 효과 9종의 3x3 보고서 이미지; LiDAR 확대·흰 여백 제거 반영 |
+| `05_ego_module_stop_freeze.png` | F09 출력 고정·노후화 통합 비교. 기존 파일명 유지, OS 프로세스 중지 아님 |
+| `ego_fault_report_3x3.png` | 고장 8종 + 정상 화면 1개. 정상 화면은 고장에 미산입 |
 | `ego_fault_report_contact_sheet.png` | 위 이미지를 보고서용으로 모은 요약 이미지 |
+| `ego_fault_report.json` | F01~F15 통합 개수·실제 캡처된 고장 수·각 기록의 통합 ID. 이미지 기록을 파이프라인 검증으로 표시하지 않음 |
+
+이전 보고서·시험 원본은 보존하며 삭제·덮어쓰기하지 않음. 신규 보고서에서는 중복된 `fault_09_stale_perception_output.png`를 별도 생성하지 않음.
 
 ## 실시간 화면 확인
 
