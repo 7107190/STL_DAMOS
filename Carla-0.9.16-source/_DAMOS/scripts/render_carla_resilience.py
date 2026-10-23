@@ -1,5 +1,6 @@
 """Compact scientific figures from actual CARLA fault-response records."""
 import argparse
+import hashlib
 import json
 from pathlib import Path
 
@@ -9,9 +10,66 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import ListedColormap
 import numpy as np
 
+from fault_catalog import resolve_fault
+
+
+def render_quality_faults(root, output, cells, weather):
+    import cv2
+    from bev_fault_quality import QUALITY_FAULTS, load_raw_task
+    from bev_occupancy import render_presence
+    from bev_sensor_rig import HEIGHT, WIDTH
+    names = [name for name in QUALITY_FAULTS if (name, weather) in cells]
+    if not names:
+        return
+    fig, axes = plt.subplots(4, len(names), figsize=(4.4 * len(names), 13), squeeze=False, layout='constrained')
+    for col, name in enumerate(names):
+        case = cells[name, weather]
+        row = next(r for r in case['rounds'] if r['phase'] == 'fault')
+        folder = root / weather / 'resilience' / row['path'] / 'ego'
+        before = load_raw_task(folder / ('ego_quality_reference.npz' if name == 'camera_misalignment' else 'ego_raw_before.npz'))
+        applied = load_raw_task(folder / 'ego_raw_applied.npz')
+        for index, task in enumerate((before, applied)):
+            ax = axes[index, col]
+            if name.startswith('camera_'):
+                packet = task['packets'][task['label'], 'cam_front'][-1]
+                rgb = np.frombuffer(packet['raw'], np.uint8).reshape(HEIGHT, WIDTH, 4)[:, :, :3][:, :, ::-1]
+                ax.imshow(rgb)
+                ax.axis('off')
+            else:
+                packet = task['packets'][task['label'], 'lidar'][-1]
+                points = np.frombuffer(packet['raw'], np.float32).reshape(-1, 4)
+                ax.set_facecolor('#111519')
+                ax.scatter(points[:, 0], -points[:, 1], s=1.6, color='#f59a32', linewidths=0, rasterized=True)
+                ax.set_xlim(-40, 40); ax.set_ylim(-40, 40); ax.set_aspect('equal')
+                ax.tick_params(labelsize=8)
+            source = 'REFERENCE' if index == 0 else 'APPLIED FAULT'
+            ax.set_title(f'{source} F{task["window"][-1]}', fontsize=10)
+        for index, filename in ((2, 'ego_rejected_candidate.npz'), (3, 'ego_fused.npz')):
+            with np.load(folder / filename, allow_pickle=False) as archive:
+                bev = {key: archive[key] for key in archive.files}
+            image = cv2.cvtColor(render_presence(bev), cv2.COLOR_BGR2RGB)
+            axes[index, col].imshow(image)
+            axes[index, col].axis('off')
+            axes[index, col].set_title('Actual model output - REJECTED' if index == 2 else row['decision']['state'], fontsize=10)
+        fault = resolve_fault(name)
+        axes[0, col].set_title(f'{fault.fault_id} {fault.label}\n{axes[0, col].get_title()}', fontsize=11)
+    fig.suptitle(f'Actual input corruption, CUDA candidate rejection and authenticated peer fallback | {weather}', fontsize=16)
+    fig.supxlabel('Rows: original/reference raw input; applied raw fault; rejected CUDA output; ego fused output. '
+                  'F03 reference is the prior normal frame; physical sensor yaw changed by 25 degrees. '
+                  'Availability response, not target-detection accuracy.', fontsize=10)
+    fig.savefig(output / 'quality_faults_overview.png', dpi=150)
+    plt.close(fig)
+
 
 def render(root, output):
     output.mkdir(parents=True, exist_ok=False)
+    source = Path(__file__).read_bytes()
+    (output / 'renderer.py').write_bytes(source)
+    (output / 'rendering_provenance.json').write_text(json.dumps({
+        'renderer_sha256': hashlib.sha256(source).hexdigest(),
+        'summary_sha256': hashlib.sha256((root / 'summary.json').read_bytes()).hexdigest(),
+        'protocol_sha256': hashlib.sha256((root / 'protocol.json').read_bytes()).hexdigest(),
+        'scope': 'post-processing saved trial records; no new scene or model execution'}, indent=2))
     summary = json.loads((root / 'summary.json').read_text())
     protocol = json.loads((root / 'protocol.json').read_text())
     names, weather = protocol['cases'], protocol['weathers']
@@ -25,11 +83,11 @@ def render(root, output):
             case = cells.get((name, condition))
             matrix[i, j] = 0 if case is None else 3 if not case['criterion_pass'] else (
                 1 if case['expected_fault_state'] == 'DEGRADED_COOPERATIVE' else 2)
-    fig, ax = plt.subplots(figsize=(10, 5.8), layout='constrained')
+    fig, ax = plt.subplots(figsize=(12, max(5.8, len(names) * .60)), layout='constrained')
     ax.imshow(matrix, cmap=ListedColormap(['#dedede', '#cae6d3', '#ffe5ad', '#f6b7b7']),
               vmin=0, vmax=3, aspect='auto')
     ax.set_xticks(range(len(weather)), weather)
-    ax.set_yticks(range(len(names)), [f'C{i+1:02d}  {n.replace("_", " ")}' for i, n in enumerate(names)])
+    ax.set_yticks(range(len(names)), [f'{resolve_fault(n).fault_id}  {n.replace("_", " ")}' for n in names])
     for i in range(len(names)):
         for j in range(len(weather)):
             value = matrix[i, j]
@@ -40,9 +98,10 @@ def render(root, output):
     ax.grid(which='minor', color='white', linewidth=2)
     ax.tick_params(which='minor', bottom=False, left=False)
     ax.set_title(f'CARLA monitoring response: {summary["successful"]}/{summary["planned"]} conditions passed', fontsize=15)
-    fig.supxlabel('Three S5 scenes; seven rounds per condition. Availability/authenticity, not fault-state detection accuracy.', fontsize=9)
+    fig.supxlabel(f'{len(weather)} S5 scene(s); seven rounds per condition. Availability/authenticity, not fault-state detection accuracy.', fontsize=9)
     fig.savefig(output / 'service_response_matrix.png', dpi=180)
     plt.close(fig)
+    render_quality_faults(root, output, cells, weather[0])
 
     case = cells.get(('front_blackout', weather[0]))
     if case is None:

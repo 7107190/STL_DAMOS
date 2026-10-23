@@ -16,7 +16,7 @@ from fault_catalog import FAULTS, PIPELINE_CASE_NAMES, REPORT_FAULTS, catalog_co
 class CatalogTests(unittest.TestCase):
     def test_counts_and_unique_ids(self):
         self.assertEqual(catalog_counts(), {"total": 15, "single": 13, "compound": 2,
-                         "pipeline_cases": 10, "capture_only": 5, "report_faults": 8})
+                         "pipeline_cases": 15, "capture_only": 0, "report_faults": 8})
         self.assertEqual([f.fault_id for f in FAULTS], [f"F{i:02d}" for i in range(1, 16)])
         self.assertEqual(len({f.key for f in FAULTS}), 15)
 
@@ -36,7 +36,7 @@ class CatalogTests(unittest.TestCase):
     def test_partial_and_complete_lidar_loss_remain_distinct(self):
         self.assertEqual(resolve_fault("lidar_dropout").fault_id, "F05")
         self.assertEqual(resolve_fault("lidar_missing").fault_id, "F07")
-        self.assertIsNone(resolve_fault("lidar_dropout").expected_state)
+        self.assertIsNotNone(resolve_fault("lidar_dropout").expected_state)
         self.assertIsNotNone(resolve_fault("lidar_missing").expected_state)
 
     def test_unknown_and_empty_names_not_silently_resolved(self):
@@ -60,20 +60,21 @@ class CatalogTests(unittest.TestCase):
         }
         from carla_resilience_trial import CASES
         from run_carla_resilience import CASE_NAMES
-        self.assertEqual(pipeline_cases(), expected)
-        self.assertEqual(CASES, expected)
-        self.assertEqual(CASE_NAMES, list(expected))
-        self.assertEqual(PIPELINE_CASE_NAMES, tuple(expected))
+        self.assertEqual({key: pipeline_cases()[key] for key in expected}, expected)
+        self.assertEqual(CASES, pipeline_cases())
+        self.assertEqual(CASE_NAMES, list(CASES))
+        self.assertEqual(PIPELINE_CASE_NAMES, tuple(CASES))
+        self.assertEqual(len(CASES), 15)
 
     def test_returned_case_mutation_does_not_change_catalog(self):
         first = pipeline_cases()
         first["front_blackout"][0]["ego"]["input"] = "bad"
         self.assertEqual(pipeline_cases()["front_blackout"][0]["ego"]["input"], "front_blackout")
 
-    def test_reports_and_pipeline_share_only_three_types(self):
+    def test_all_report_types_have_a_pipeline_case(self):
         report_ids = {f.fault_id for f in REPORT_FAULTS}
         pipeline_ids = {f.fault_id for f in FAULTS if f.expected_state is not None}
-        self.assertEqual(report_ids & pipeline_ids, {"F01", "F08", "F09"})
+        self.assertEqual(report_ids & pipeline_ids, report_ids)
         self.assertEqual(len(report_ids | pipeline_ids), 15)
 
 

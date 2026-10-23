@@ -11,6 +11,7 @@ import numpy as np
 
 from bev_mesh import BEVMesh
 from bev_resilience import ServicePolicy
+from bev_fault_quality import INJECTION_SETTINGS, QUALITY_FAULTS
 from fault_catalog import pipeline_cases
 
 CASES = pipeline_cases()
@@ -28,6 +29,33 @@ def stop_control(ego):
 def speed(ego):
     v = ego.get_velocity()
     return float(np.linalg.norm([v.x, v.y, v.z]))
+
+
+def replace_front_camera(rig, nominal, *, misaligned):
+    """Spawn a physically moved sensor; leave the declared model calibration nominal."""
+    import carla
+    active = {sensor.id: sensor for sensor in rig.sensors}
+    old = next(active[r["sensor_actor_id"]] for r in reversed(rig.records)
+               if r["track_label"] == "ego" and r["sensor_name"] == "cam_front"
+               and r["sensor_actor_id"] in active)
+    old_id = old.id
+    old.stop()
+    old.destroy()
+    rig.sensors.remove(old)
+    location, rotation = nominal["location"], dict(nominal["rotation"])
+    if misaligned:
+        rotation["yaw"] += INJECTION_SETTINGS["misalignment_yaw_delta_deg"]
+    transform = carla.Transform(carla.Location(**location), carla.Rotation(**rotation))
+    declared = rig.sensor_matrices["ego", "cam_front"].copy()
+    with rig.lock:
+        rig.buffers["ego", "cam_front"].clear()
+    rig._attach(rig.actors["ego"], "ego", "cam_front", "sensor.camera.rgb", transform)
+    rig.sensor_matrices["ego", "cam_front"] = declared
+    return {"misaligned": misaligned, "old_sensor_id": old_id,
+            "new_sensor_id": rig.sensors[-1].id,
+            "declared_relative_matrix": declared.tolist(),
+            "actual_relative_matrix": transform.get_matrix(),
+            "frame_after_replacement": rig.world.get_snapshot().frame}
 
 
 def brake_check(world, ego, origin):
@@ -67,7 +95,7 @@ def run_trial(rig, report_root, plan_path, *, scenic_proc, assignments, on_tick=
     import carla
     import cv2
     plan = json.loads(plan_path.read_text())
-    if (plan.get("schema") != "DAMOS_RESILIENCE_TRIAL_V1"
+    if (plan.get("schema") not in ("DAMOS_RESILIENCE_TRIAL_V1", "DAMOS_RESILIENCE_TRIAL_V2")
             or not plan["cases"] or not set(plan["cases"]) <= set(CASES)
             or len(plan["cases"]) != len(set(plan["cases"]))):
         raise ValueError("Invalid frozen resilience plan")
@@ -95,6 +123,9 @@ def run_trial(rig, report_root, plan_path, *, scenic_proc, assignments, on_tick=
                                   carla.Transform(), attach_to=ego)
     collision.listen(lambda d: contacts.append({"frame_id": d.frame, "other_actor_id": d.other_actor.id}))
     mesh, completed, round_id = None, [], 0
+    camera_events, camera_fault_active = [], False
+    nominal_front = next(r["relative_transform"] for r in rig.records
+                         if r["track_label"] == "ego" and r["sensor_name"] == "cam_front")
     minimum = world.get_snapshot().frame + 4
 
     def acquire():
@@ -125,6 +156,10 @@ def run_trial(rig, report_root, plan_path, *, scenic_proc, assignments, on_tick=
             rounds = []
             case_contacts = len(contacts)
             for phase, count in (("baseline", 3), ("fault", 1), ("recovery", 3)):
+                if name == "camera_misalignment" and phase in ("fault", "recovery"):
+                    camera_fault_active = phase == "fault"
+                    camera_events.append(replace_front_camera(rig, nominal_front, misaligned=camera_fault_active))
+                    minimum = world.get_snapshot().frame + 8
                 for index in range(count):
                     stop_control(ego)
                     window, tasks = acquire()
@@ -176,6 +211,18 @@ def run_trial(rig, report_root, plan_path, *, scenic_proc, assignments, on_tick=
                                           if expected == "SAFE_STOP" else True)}
             if name in ("packet_tamper", "packet_replay", "invalid_proof"):
                 checks["attack_rejected"] = bool(fault_row["ego"]["rejected_packets"])
+            if name in QUALITY_FAULTS:
+                quality = fault_row["ego"]
+                expected_issue = {"camera_degradation": "CAMERA_DETAIL_LOSS",
+                    "camera_misalignment": "CAMERA_MOUNT_MISMATCH:cam_front",
+                    "lidar_noise": "LIDAR_SCAN_ENVELOPE_VIOLATION",
+                    "lidar_dropout": "LIDAR_DENSITY_LOSS",
+                    "lidar_outlier": "LIDAR_SCAN_ENVELOPE_VIOLATION"}[name]
+                checks.update(measured_quality_guard_triggered=expected_issue in quality["health"]["issues"],
+                    actual_corrupted_input_inference=quality["inference"] is not None,
+                    candidate_rejected_before_sharing=quality.get("quality_candidate", {}).get("rejected_before_publish_or_fusion", False),
+                    invalid_local_not_fused=quality["local_observed_cells"] == 0 and not quality["local_usable"],
+                    authenticated_peer_replacement=len(quality["usable_peer_ids"]) == 1)
             result = {"case": name, "weather": plan["weather"], "expected_fault_state": expected,
                 "checks": checks, "criterion_pass": all(checks.values()), "rounds": rounds,
                 "formal_metric2_or_3_case": False}
@@ -191,6 +238,8 @@ def run_trial(rig, report_root, plan_path, *, scenic_proc, assignments, on_tick=
             "fatal_error": type(exc).__name__ + ": " + str(exc), "formal_metric2_or_3_case": False})
         raise
     finally:
+        if camera_fault_active:
+            camera_events.append(replace_front_camera(rig, nominal_front, misaligned=False))
         stop_control(ego)
         if mesh is not None:
             mesh.close()
@@ -202,6 +251,7 @@ def run_trial(rig, report_root, plan_path, *, scenic_proc, assignments, on_tick=
             "actors": {node: {"actor_id": actor.id, "type_id": actor.type_id}
                        for node, track in labels.items() for actor in [rig.actors[track]]},
             "ego_pose_carla": origin.get_matrix(),
+            "physical_camera_replacements": camera_events,
             "stationary_monitoring_trial": True, "automatic_driving_resume": False,
             "clock_owner": "Scenic; this experiment never calls world.tick",
             "backend": "REAL_GROTH16", "deployment": "single-host independent processes, TCP loopback"})

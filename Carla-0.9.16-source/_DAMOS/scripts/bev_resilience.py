@@ -11,11 +11,13 @@ import time
 import numpy as np
 
 from bev_fusion import fuse_bevs
+from bev_fault_quality import (QUALITY_FAULTS, inject_quality_input, inspect_quality,
+                               nominal_calibration_task, save_raw_task)
 from bev_protocol import protect_bev
 from m2x.transport import send_image
 
 INPUT_FAULTS = ("none", "front_blackout", "lidar_missing", "sensor_delay",
-                "output_freeze", "rgb_lidar_failure")
+                "output_freeze", "rgb_lidar_failure", *QUALITY_FAULTS)
 WIRE_FAULTS = ("none", "drop", "tamper", "replay", "bad_proof")
 
 
@@ -26,7 +28,7 @@ def empty_reference(pose):
             "pose": np.asarray(pose, np.float32).copy()}
 
 
-def inspect_input(sample, expected_frame):
+def inspect_input(sample, expected_frame, reference=None):
     from bev_sensor_rig import CAMERAS, HEIGHT, WIDTH
     label = sample["label"]
     issues, cameras = [], {}
@@ -55,15 +57,20 @@ def inspect_input(sample, expected_frame):
     stamps = [sample["packets"][label, name][-1]["timestamp"] for name in CAMERAS]
     if any(abs(stamp - lidar["timestamp"]) > 1e-6 for stamp in stamps):
         issues.append("UNSYNCHRONIZED_INPUT")
+    quality = inspect_quality(sample, reference) if reference is not None else None
+    if quality is not None:
+        issues.extend(quality["issues"])
     return {"usable": not issues, "issues": issues, "camera_evidence": cameras,
             "lidar_frame_id": lidar["frame"], "lidar_points": int(points.size // 4),
             "capture_sim_ns": round(lidar["timestamp"] * 1e9),
-            "lidar_raw_sha256": hashlib.sha256(lidar["raw"]).hexdigest()}
+            "lidar_raw_sha256": hashlib.sha256(lidar["raw"]).hexdigest(), "quality": quality}
 
 
 def inject_input(sample, mode, held):
     if mode not in INPUT_FAULTS:
         raise ValueError("Unsupported input fault")
+    if mode in QUALITY_FAULTS:
+        return inject_quality_input(sample, mode)
     if mode == "sensor_delay":
         if held is None:
             raise ValueError("Delay injection requires a retained real input")
@@ -122,12 +129,14 @@ def run_service_round(node, task, settings, predictor, backend, secret, commitme
     frame = current["window"][-1]
     reference = empty_reference(task_pose(current))
     sample = inject_input(current, fault.get("input", "none"), cache.get("input"))
-    health = inspect_input(sample, frame)
+    quality_reference = cache.get("quality_reference")
+    health = inspect_input(sample, frame, quality_reference)
     row = {"event": "service_round", "node_id": node, "round_id": task["round_id"],
            "frame_id": frame, "fault_injection": fault, "health": health,
            "verified_peer_ids": [], "usable_peer_ids": [], "rejected_packets": [],
            "status": "service_error", "metric2_pass": None, "errors": []}
     own, body, packet, arrays, inference = reference, None, None, None, None
+    candidate = None
     capture_ns = health["capture_sim_ns"]
     output_frame = sample["window"][-1]
     if fault.get("input") == "output_freeze":
@@ -138,10 +147,17 @@ def run_service_round(node, task, settings, predictor, backend, secret, commitme
         health["usable"] = False
         health["issues"].append("STALE_MODEL_OUTPUT")
         row["inference_skipped"] = "retained actual earlier prediction, not OS process termination"
-    elif health["usable"]:
+    elif health["usable"] or fault.get("input") in QUALITY_FAULTS:
         try:
-            arrays, row["input"] = prepare(sample)
-            own, inference = predictor.infer(arrays)
+            model_sample = nominal_calibration_task(sample) if fault.get("input") == "camera_misalignment" else sample
+            arrays, row["input"] = prepare(model_sample)
+            candidate, inference = predictor.infer(arrays)
+            own = candidate if health["usable"] else reference
+            if fault.get("input") in QUALITY_FAULTS:
+                row["quality_candidate"] = {"actual_inference_executed": True,
+                    "rejected_before_publish_or_fusion": not health["usable"],
+                    "uses_stale_nominal_camera_calibration": fault.get("input") == "camera_misalignment",
+                    "observed_cells": int(candidate["valid"].sum())}
         except Exception as exc:
             health["usable"] = False
             health["issues"].append("INFERENCE_FAILED")
@@ -149,7 +165,7 @@ def run_service_round(node, task, settings, predictor, backend, secret, commitme
     else:
         row["inference_skipped"] = "invalid raw input; explicitly unknown reference only"
     row["inference"] = inference
-    if inference is not None:
+    if inference is not None and health["usable"]:
         cache.update(prediction=own, prediction_frame=output_frame, prediction_capture_ns=capture_ns)
     graph = task["graph"]
     expected = graph[node]
@@ -232,6 +248,13 @@ def run_service_round(node, task, settings, predictor, backend, secret, commitme
         cv2.imwrite(str(folder / f"{node}_input_front.png"), rgb)
     if arrays is not None:
         np.savez_compressed(folder / f"{node}_model_inputs.npz", **arrays)
+    if fault.get("input") in QUALITY_FAULTS:
+        save_raw_task(folder / f"{node}_raw_before.npz", current)
+        save_raw_task(folder / f"{node}_raw_applied.npz", sample)
+        if quality_reference is not None:
+            save_raw_task(folder / f"{node}_quality_reference.npz", quality_reference)
+        if candidate is not None:
+            np.savez_compressed(folder / f"{node}_rejected_candidate.npz", **candidate)
     np.savez_compressed(folder / f"{node}_own.npz", **own)
     for sender, decoded in shared.items():
         np.savez_compressed(folder / f"{node}_received_{sender}.npz", **decoded)
@@ -247,5 +270,7 @@ def run_service_round(node, task, settings, predictor, backend, secret, commitme
             (folder / f"{node}_sent_body.bin").write_bytes(sent_body)
         cache.update(packet=packet, body=body)
     cache["input"] = current
+    if health["usable"] and fault.get("input", "none") == "none":
+        cache["quality_reference"] = current
     (folder / f"{node}_service.json").write_text(json.dumps(row, indent=2))
     return row
