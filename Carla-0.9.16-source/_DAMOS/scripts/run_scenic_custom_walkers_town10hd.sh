@@ -13,6 +13,7 @@ MAP="/Game/Carla/Maps/Town10HD_Opt"
 SCENIC_CARLA_MAP="Town10HD_Opt"
 SCENIC_XODR="$ROOT/Scenic/Maps/Town10HD_Opt.xodr"
 WEATHER=""
+QUALITY_LEVEL="Low"
 
 PORT=2000
 HEADLESS=0
@@ -179,6 +180,7 @@ Options:
   --map-name NAME        CARLA map name for server and Scenic (default: Town10HD_Opt)
   --map-xodr PATH        Scenic .xodr path override
   --weather NAME         Scenic weather override. Omit for random S_.scenic weather.
+  --quality-level LEVEL  Low (default) or Epic; weather-effect trials use Epic.
   --verbose              Print detailed anchor, observer, metric, and report logs
   --resx N               GUI width when not headless (default: 960)
   --resy N               GUI height when not headless (default: 540)
@@ -220,7 +222,7 @@ is_matching_source_server() {
   local pid="$1"
   local cmdline
   cmdline="$(process_cmdline "$pid")"
-  [[ "$cmdline" == *"$UPROJECT"* ]] && [[ "$cmdline" == *"$MAP"* ]] && [[ "$cmdline" == *"-carla-rpc-port=$PORT"* ]]
+  [[ "$cmdline" == *"$UPROJECT"* ]] && [[ "$cmdline" == *"$MAP"* ]] && [[ "$cmdline" == *"-carla-rpc-port=$PORT"* ]] && [[ "$cmdline" == *"-quality-level=$QUALITY_LEVEL"* ]]
 }
 
 wait_for_port_to_clear() {
@@ -537,6 +539,10 @@ while [[ $# -gt 0 ]]; do
       WEATHER="$2"
       shift 2
       ;;
+    --quality-level)
+      QUALITY_LEVEL="$2"
+      shift 2
+      ;;
     --verbose)
       VERBOSE=1
       shift
@@ -572,6 +578,11 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+if [[ "$QUALITY_LEVEL" != "Low" && "$QUALITY_LEVEL" != "Epic" ]]; then
+  echo "--quality-level must be Low or Epic." >&2
+  exit 1
+fi
 
 sharing_args=()
 bev_args=()
@@ -713,7 +724,7 @@ if [[ -n "$existing_pid" ]]; then
       stop_server_pid "$existing_pid"
       existing_pid=""
     else
-      echo "Port $PORT is already used by this source build, but not with $SCENIC_CARLA_MAP." >&2
+      echo "Port $PORT is already used by this source build, but not with $SCENIC_CARLA_MAP / $QUALITY_LEVEL." >&2
       echo "Use --restart to replace it with the Scenic integration server for $SCENIC_CARLA_MAP." >&2
       exit 1
     fi
@@ -735,7 +746,7 @@ if [[ -z "$SERVER_PID" ]]; then
     "$MAP"
     -game
     "-carla-rpc-port=$PORT"
-    -quality-level=Low
+    "-quality-level=$QUALITY_LEVEL"
   )
 
   if [[ "$HEADLESS" -eq 1 ]]; then

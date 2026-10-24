@@ -19,12 +19,14 @@ EGO_HEADING_OVERRIDE = globalParameters.get('EGO_START_HEADING', 0)
 EGO_STATIC_OVERRIDE = globalParameters.get('EGO_STATIC', 0)
 EGO_BLUEPRINT_OVERRIDE = globalParameters.get('EGO_BLUEPRINT', 'vehicle.ford.mustang')
 
-param weather = Uniform(
-  {'cloudiness': 30, 'sun_azimuth_angle': 270, 'sun_altitude_angle': 5, 'scattering_intensity': 60, 'wetness': 20},
-  {'cloudiness': 95, 'precipitation': 95, 'precipitation_deposits': 80, 'wind_intensity': 30, 'wetness': 90, 'fog_density': 20, 'sun_altitude_angle': 10},
-  {'cloudiness': 80, 'fog_density': 100, 'fog_distance': 10, 'fog_falloff': 1.0, 'wetness': 10, 'sun_altitude_angle': 15},
-  {'cloudiness': 60, 'sun_altitude_angle': -20, 'wetness': 95, 'fog_density': 10, 'scattering_intensity': 40},
-)
+import json
+from pathlib import Path as FilePath
+DAMOS_WEATHER_PRESETS = json.loads(FilePath(localPath('weather_presets.json')).read_text())
+DAMOS_WEATHER_INDEX = int(globalParameters.get('DAMOS_WEATHER_INDEX', -1))
+if not -1 <= DAMOS_WEATHER_INDEX < len(DAMOS_WEATHER_PRESETS):
+  raise ValueError('Invalid DAMOS_WEATHER_INDEX')
+param weather = (Uniform(*DAMOS_WEATHER_PRESETS.values()) if DAMOS_WEATHER_INDEX == -1
+                 else list(DAMOS_WEATHER_PRESETS.values())[DAMOS_WEATHER_INDEX])
 
 behavior DAMOSJaywalkBehavior(reference_actor, speed=1, threshold=13):
   while (distance from self to reference_actor) > threshold:

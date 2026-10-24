@@ -15,6 +15,7 @@ import sys
 from fault_catalog import PIPELINE_CASE_NAMES
 from bev_fault_quality import INJECTION_SETTINGS, QUALITY_LIMITS, INFERENCE_REPLAY_LIMITS
 from bev_model_runtime import CUDA_INFERENCE_POLICY
+from resilience_weather import BASE_WEATHER_NAMES, LEGACY_WEATHER_NAMES, resolve_weather
 
 CASE_NAMES = list(PIPELINE_CASE_NAMES)
 
@@ -47,14 +48,16 @@ def main():
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[2])
     parser.add_argument("--port", type=int, default=2690)
     parser.add_argument("--cases", nargs="+", choices=CASE_NAMES, default=CASE_NAMES)
-    parser.add_argument("--weathers", nargs="+", choices=["ClearNoon", "HardRainNoon", "ClearNight"],
-                        default=["ClearNoon", "HardRainNoon", "ClearNight"])
+    parser.add_argument("--weathers", nargs="+", choices=(*BASE_WEATHER_NAMES, *LEGACY_WEATHER_NAMES),
+                        default=list(BASE_WEATHER_NAMES))
+    parser.add_argument("--quality-level", choices=("Low", "Epic"), default="Epic")
     parser.add_argument("--receive-timeout-s", type=float, default=8.)
     args = parser.parse_args()
     if (not 1 <= args.receive_timeout_s <= 15 or len(set(args.cases)) != len(args.cases)
             or len(set(args.weathers)) != len(args.weathers)):
         parser.error("Unique cases/weathers and 1..15s receive timeout required")
     root, output = args.root.resolve(), args.output.resolve()
+    weather_profiles = {name: resolve_weather(name) for name in args.weathers}
     checkpoint = root / "_DAMOS/models/yerin_bev/scenic_presence_ground_guard_20261008.pt"
     if not checkpoint.is_file():
         raise FileNotFoundError(checkpoint)
@@ -70,10 +73,15 @@ def main():
          "fault_catalog.py", "bev_fault_quality.py", "audit_carla_resilience.py",
          "render_carla_resilience.py", "bev_occupancy.py", "bev_ground_guard.py")],
          root.parent / "sensor_config.txt", root / "_DAMOS/vendor/yerin_bev/models_bev.py",
-         root / "_DAMOS/vendor/yerin_bev/prism_v2.json"]
+         root / "_DAMOS/vendor/yerin_bev/prism_v2.json", root / "_DAMOS/scripts/resilience_weather.py",
+         root / "_DAMOS/scripts/scenic_custom_walker_injector.py",
+         root / "_DAMOS/_scenarios/S_.scenic", root / "_DAMOS/_scenarios/weather_presets.json",
+         root / "_DAMOS/scripts/run_scenic_custom_walkers_town10hd.sh"]
     source = freeze_source(files, output)
     write_json(output / "protocol.json", {"created_utc": datetime.now(timezone.utc).isoformat(),
         "cases": args.cases, "weathers": args.weathers, "scenario": "S5", "ego_only": True,
+        "weather_profiles": weather_profiles,
+        "rendering_quality": args.quality_level,
         "source_sha256": source, "checkpoint_path": str(checkpoint),
         "checkpoint_sha256": hashlib.sha256(checkpoint.read_bytes()).hexdigest(),
         "service_definition": "fresh authenticated cooperative monitoring or explicit stop; no guaranteed all-object recognition",
@@ -91,6 +99,8 @@ def main():
         target = output / weather
         target.mkdir()
         plan = {"schema": "DAMOS_RESILIENCE_TRIAL_V2", "cases": args.cases, "weather": weather,
+                "weather_profile": weather_profiles[weather],
+                "rendering_quality": args.quality_level,
                 "port": args.port, "receive_timeout_s": args.receive_timeout_s,
                 "maximum_round_age_s": 20.}
         plan_path = target / "plan.json"
@@ -100,6 +110,7 @@ def main():
             "--restart", "--offscreen", "--port", str(args.port), "--selected-scenario", "S5",
             "--runs", "1", "--scenic-time", "1800", "--realtime-factor", "1.0",
             "--ego-start", "-59", "26", "0", "--weather", weather,
+            "--quality-level", args.quality_level,
             "--scene-seed", str(2026101400 + index), "--observer-blueprint", "deliverybot",
             "--live-bev-fusion", "--bev-rounds", str(7 * len(args.cases)),
             "--report-dir", str(target), "--no-trajectory-report"]

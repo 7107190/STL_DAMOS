@@ -13,6 +13,7 @@ from bev_protocol import encode_bev, hashes, validate_manifest
 from bev_resilience import ServicePolicy, empty_reference, inject_input, inspect_input
 from bev_fault_quality import (QUALITY_FAULTS, INFERENCE_REPLAY_LIMITS,
                                load_raw_task, nominal_calibration_task)
+from resilience_weather import weather_mismatches
 
 
 def load_json(path):
@@ -45,13 +46,37 @@ def audit(folder, real_crypto=False, replay_inference=False, inference_repeats=1
             assert predictor.inference_policy == protocol["inference_policy"]
     counts = {"rounds": 0, "packets": 0, "fusion_replays": 0, "state_replays": 0,
               "groth16_proofs_reverified": 0, "case_verdicts": 0, "wire_attacks_checked": 0,
-              "quality_raw_replays": 0, "corrupted_inference_replays": 0}
+              "quality_raw_replays": 0, "corrupted_inference_replays": 0,
+              "initial_weather_checks": 0, "weather_observations_checked": 0,
+              "rendering_quality_checks": 0}
     checks, inference_checks = [], []
     inference_limits = protocol.get("inference_replay_limits", INFERENCE_REPLAY_LIMITS)
     for execution in summary["executions"]:
         root = folder / execution["weather"] / "resilience"
         registry = load_json(root / "enrollment.json")
         scene = load_json(root / "scene.json")
+        expected_weather = protocol.get("weather_profiles", {}).get(execution["weather"], {}).get("expected_full")
+        if protocol.get("rendering_quality") is not None:
+            quality = protocol["rendering_quality"]
+            plan = load_json(folder / execution["weather"] / "plan.json")
+            assert plan["rendering_quality"] == quality
+            renderer = scene["initial_renderer"]
+            assert renderer["quality"] == renderer["expected"] == quality and renderer["matches_plan"]
+            assert [arg for arg in renderer["argv"] if arg.startswith("-quality-level=")] == [f"-quality-level={quality}"]
+            assert f"-carla-rpc-port={plan['port']}" in renderer["argv"]
+            counts["rendering_quality_checks"] += 1
+        if expected_weather is not None:
+            profile = protocol["weather_profiles"][execution["weather"]]
+            plan_path = folder / execution["weather"] / "plan.json"
+            assert load_json(plan_path)["weather_profile"] == profile
+            assert hashlib.sha256(plan_path.read_bytes()).hexdigest() == scene["plan_sha256"]
+            if profile["family"] == "scenic_base":
+                catalog = load_json(folder / "frozen_source/weather_presets.json")
+                assert profile["requested"] == catalog[execution["weather"]]
+            assert scene["initial_weather"]["expected"] == expected_weather
+            assert not weather_mismatches(scene["initial_weather"]["actual"], expected_weather)
+            assert scene["initial_weather"]["matches_plan"]
+            counts["initial_weather_checks"] += 1
         assert registry["actor_ids"] == {n: r["actor_id"] for n, r in scene["actors"].items()}
         assert execution["returncode"] == 0 and execution["summary"]["fatal_error"] is None
         camera_events = scene.get("physical_camera_replacements", [])
@@ -63,6 +88,11 @@ def audit(folder, real_crypto=False, replay_inference=False, inference_repeats=1
         for case in execution["summary"]["cases"]:
             policy = ServicePolicy(3)
             for record in case["rounds"]:
+                if expected_weather is not None:
+                    observed = record["weather_observation"]
+                    assert observed["expected"] == expected_weather and observed["matches_plan"]
+                    assert not weather_mismatches(observed["actual"], expected_weather)
+                    counts["weather_observations_checked"] += 1
                 output = root / record["path"]
                 rows = record["peers"]
                 for node, row in rows.items():

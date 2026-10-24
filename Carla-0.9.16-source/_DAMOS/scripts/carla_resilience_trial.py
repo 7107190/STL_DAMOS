@@ -12,6 +12,7 @@ import numpy as np
 from bev_mesh import BEVMesh
 from bev_resilience import ServicePolicy
 from bev_fault_quality import INJECTION_SETTINGS, QUALITY_FAULTS
+from resilience_weather import observe_weather, observe_renderer
 from fault_catalog import pipeline_cases
 
 CASES = pipeline_cases()
@@ -123,6 +124,9 @@ def run_trial(rig, report_root, plan_path, *, scenic_proc, assignments, on_tick=
                                   carla.Transform(), attach_to=ego)
     collision.listen(lambda d: contacts.append({"frame_id": d.frame, "other_actor_id": d.other_actor.id}))
     mesh, completed, round_id = None, [], 0
+    initial_weather = None
+    initial_renderer = None
+    expected_weather = plan.get("weather_profile", {}).get("expected_full")
     camera_events, camera_fault_active = [], False
     nominal_front = next(r["relative_transform"] for r in rig.records
                          if r["track_label"] == "ego" and r["sensor_name"] == "cam_front")
@@ -142,6 +146,13 @@ def run_trial(rig, report_root, plan_path, *, scenic_proc, assignments, on_tick=
         return window, {node: tasks[track] for node, track in labels.items()}
 
     try:
+        if plan.get("rendering_quality") is not None:
+            initial_renderer = observe_renderer(plan["port"], plan["rendering_quality"])
+            if not initial_renderer["matches_plan"]:
+                raise RuntimeError("Actual CARLA renderer differs from frozen plan")
+        initial_weather = observe_weather(world, expected_weather)
+        if expected_weather is not None and not initial_weather["matches_plan"]:
+            raise RuntimeError("Actual CARLA weather differs from frozen plan: " + str(initial_weather["mismatches"]))
         _, warmup = acquire()
         mesh = BEVMesh(actors, timeout_s=60)
         mesh.warmup(warmup)
@@ -163,6 +174,7 @@ def run_trial(rig, report_root, plan_path, *, scenic_proc, assignments, on_tick=
                 for index in range(count):
                     stop_control(ego)
                     window, tasks = acquire()
+                    weather_observation = observe_weather(world, expected_weather)
                     round_id += 1
                     output = target / f"round_{round_id:03d}"
                     output.mkdir()
@@ -184,6 +196,7 @@ def run_trial(rig, report_root, plan_path, *, scenic_proc, assignments, on_tick=
                     record = {"phase": phase, "phase_index": index + 1, "round_id": round_id,
                         "frame_id": window[-1], "capture_sim_ns": row["health"]["capture_sim_ns"],
                         "decision": decision, "ego": row, "peers": rows,
+                        "weather_observation": weather_observation,
                         "parent_round_seconds_including_artifact_wait": wall_elapsed,
                         "on_driving_lane": driving, "snapshot_frame_after_result": snap.frame,
                         "path": str(output.relative_to(folder))}
@@ -211,6 +224,8 @@ def run_trial(rig, report_root, plan_path, *, scenic_proc, assignments, on_tick=
                                           if expected == "SAFE_STOP" else True)}
             if name in ("packet_tamper", "packet_replay", "invalid_proof"):
                 checks["attack_rejected"] = bool(fault_row["ego"]["rejected_packets"])
+            if expected_weather is not None:
+                checks["weather_matches_frozen_plan"] = all(r["weather_observation"]["matches_plan"] for r in rounds)
             if name in QUALITY_FAULTS:
                 quality = fault_row["ego"]
                 expected_issue = {"camera_degradation": "CAMERA_DETAIL_LOSS",
@@ -252,6 +267,8 @@ def run_trial(rig, report_root, plan_path, *, scenic_proc, assignments, on_tick=
                        for node, track in labels.items() for actor in [rig.actors[track]]},
             "ego_pose_carla": origin.get_matrix(),
             "physical_camera_replacements": camera_events,
+            "initial_weather": initial_weather,
+            "initial_renderer": initial_renderer,
             "stationary_monitoring_trial": True, "automatic_driving_resume": False,
             "clock_owner": "Scenic; this experiment never calls world.tick",
             "backend": "REAL_GROTH16", "deployment": "single-host independent processes, TCP loopback"})

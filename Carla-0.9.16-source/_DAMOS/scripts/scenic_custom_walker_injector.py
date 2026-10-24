@@ -22,6 +22,7 @@ import cv2
 import numpy as np
 
 from fault_catalog import REPORT_FAULTS, catalog_counts, resolve_fault
+from resilience_weather import scenic_weather_parameter
 
 from custom_walker_runtime import (
     CustomWalkerAnchor,
@@ -267,7 +268,7 @@ def add_integration_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--weather",
         default=None,
-        help="Override Scenic weather param, e.g. ClearNoon.",
+        help="Select low_sun/heavy_rain/dense_fog/wet_night or a CARLA preset such as ClearNoon.",
     )
     parser.add_argument("--wait-for-server-seconds", type=float, default=60.0)
     parser.add_argument("--wait-for-ego-seconds", type=float, default=30.0)
@@ -5608,7 +5609,8 @@ def build_scenic_command(config: ScenicCustomWalkerConfig) -> list[str]:
     if config.map_xodr:
         command.extend(["--param", "map", str(pathlib.Path(config.map_xodr).resolve())])
     if config.weather:
-        command.extend(["--param", "weather", config.weather])
+        parameter, value = scenic_weather_parameter(config.weather)
+        command.extend(["--param", parameter, value])
     return command
 
 
