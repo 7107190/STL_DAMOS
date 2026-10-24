@@ -19,6 +19,11 @@ INPUT_SHAPES = {
     "post_rots": (1, 4, 6, 3, 3), "post_trans": (1, 4, 6, 3),
     "ego2globals": (1, 4, 4, 4), "lidar_bev": (1, 6, 200, 200),
 }
+CUDA_INFERENCE_POLICY = {
+    "version": "deterministic-cuda-v1", "deterministic_algorithms": True,
+    "warn_only": False, "cudnn_benchmark": False, "cudnn_deterministic": True,
+    "cublas_workspace_config": ":4096:8", "autocast_dtype": "float16",
+}
 CLASS_NAMES = ["others", "barrier", "bicycle", "bus", "car", "construction",
                "motorcycle", "pedestrian", "object", "trailer", "truck", "road",
                "other_flat", "sidewalk", "terrain", "manmade", "vegetation"]
@@ -38,11 +43,37 @@ def validate_inputs(inputs):
         raise ValueError("LiDAR has no observed cells.")
 
 
+def configure_cuda_inference(torch):
+    expected = CUDA_INFERENCE_POLICY["cublas_workspace_config"]
+    workspace = os.environ.get("CUBLAS_WORKSPACE_CONFIG")
+    if workspace is None:
+        if torch.cuda.is_initialized():
+            raise RuntimeError("Configure BEV reproducibility before CUDA initialization; restart this process.")
+        os.environ["CUBLAS_WORKSPACE_CONFIG"] = expected
+    elif workspace != expected:
+        raise ValueError(f"BEV inference requires CUBLAS_WORKSPACE_CONFIG={expected}")
+    torch.use_deterministic_algorithms(True, warn_only=False)
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
+    return dict(CUDA_INFERENCE_POLICY)
+
+
+def require_cuda_inference_policy(torch):
+    if (not torch.are_deterministic_algorithms_enabled()
+            or torch.is_deterministic_algorithms_warn_only_enabled()
+            or torch.backends.cudnn.benchmark
+            or not torch.backends.cudnn.deterministic
+            or os.environ.get("CUBLAS_WORKSPACE_CONFIG") != CUDA_INFERENCE_POLICY["cublas_workspace_config"]):
+        raise RuntimeError("BEV deterministic inference policy changed after initialization.")
+
+
 class BEVPredictor:
     def __init__(self, checkpoint=None):
         checkpoint = Path(checkpoint or os.environ.get("DAMOS_BEV_CHECKPOINT",CHECKPOINT))
         import torch
         self.torch = torch
+        # Each service/audit process must choose the same kernels before its first forward.
+        self.inference_policy = configure_cuda_inference(torch)
         if not torch.cuda.is_available():
             raise RuntimeError("CUDA required; no mock or CPU model fallback.")
         torch.set_num_threads(2)
@@ -92,6 +123,7 @@ class BEVPredictor:
 
     def infer(self, inputs):
         torch = self.torch
+        require_cuda_inference_policy(torch)
         start = time.perf_counter_ns()
         validate_inputs(inputs)
         tensors = {name: torch.from_numpy(np.ascontiguousarray(inputs[name])).cuda()
@@ -144,7 +176,8 @@ class BEVPredictor:
                   "ground_guard_ms":(end-calibration_end)/1e6,"ground_guard_changed_cells":guard_changed,
                   "ground_guard_same_forward_reference_saved":guard_reference is not None,
                   "peak_allocated_bytes": torch.cuda.max_memory_allocated(), "checkpoint_step": self.step,
-                  "selected_refinement_patches": aux["n_sel_patches"], "checkpoint_sha256": self.checkpoint_hash}
+                  "selected_refinement_patches": aux["n_sel_patches"], "checkpoint_sha256": self.checkpoint_hash,
+                  "inference_policy": dict(self.inference_policy)}
         return result, timing
 
 

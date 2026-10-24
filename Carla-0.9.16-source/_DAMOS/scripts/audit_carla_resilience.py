@@ -24,7 +24,9 @@ def load_npz(path):
         return {key: data[key] for key in data.files}
 
 
-def audit(folder, real_crypto=False, replay_inference=False):
+def audit(folder, real_crypto=False, replay_inference=False, inference_repeats=1):
+    if not 1 <= inference_repeats <= 10:
+        raise ValueError("Inference repeats must be in 1..10")
     protocol = load_json(folder / "protocol.json")
     summary = load_json(folder / "summary.json")
     for source, digest in protocol["source_sha256"].items():
@@ -39,6 +41,8 @@ def audit(folder, real_crypto=False, replay_inference=False):
         from bev_model_runtime import BEVPredictor
         predictor = BEVPredictor(protocol["checkpoint_path"])
         assert predictor.checkpoint_hash == protocol["checkpoint_sha256"]
+        if "inference_policy" in protocol:
+            assert predictor.inference_policy == protocol["inference_policy"]
     counts = {"rounds": 0, "packets": 0, "fusion_replays": 0, "state_replays": 0,
               "groth16_proofs_reverified": 0, "case_verdicts": 0, "wire_attacks_checked": 0,
               "quality_raw_replays": 0, "corrupted_inference_replays": 0}
@@ -133,8 +137,10 @@ def audit(folder, real_crypto=False, replay_inference=False):
                     candidate = load_npz(ego_dir / "ego_rejected_candidate.npz")
                     assert np.isfinite(candidate["probabilities"]).all()
                     assert ego_row["inference"] is not None
-                    if predictor is not None:
-                        repeated, _ = predictor.infer(stored_inputs)
+                    if "inference_policy" in protocol:
+                        assert ego_row["inference"]["inference_policy"] == protocol["inference_policy"]
+                    for repeat_index in range(inference_repeats if predictor is not None else 0):
+                        repeated, timing = predictor.infer(stored_inputs)
                         error = np.abs(repeated["probabilities"].astype(np.float64) - candidate["probabilities"].astype(np.float64))
                         maximum, mean = float(error.max()), float(error.mean())
                         numeric_pass = (maximum <= inference_limits["maximum_probability_error"]
@@ -142,6 +148,7 @@ def audit(folder, real_crypto=False, replay_inference=False):
                         np.testing.assert_array_equal(repeated["valid"], candidate["valid"])
                         np.testing.assert_array_equal(repeated["pose"], candidate["pose"])
                         inference_checks.append({"weather": case["weather"], "case": case["case"],
+                            "repeat_index": repeat_index, "inference_policy": timing.get("inference_policy"),
                             "maximum_probability_error": maximum, "mean_probability_error": mean,
                             "within_predeclared_limits": numeric_pass,
                             "valid_mask_and_pose_exact": True, "probabilities_bitwise_equal": bool(not error.any())})
@@ -191,6 +198,7 @@ def audit(folder, real_crypto=False, replay_inference=False):
     return {"all_saved_arrays_and_states_consistent": True, "counts": counts,
         "real_crypto_enabled": real_crypto, "completed": summary["completed"],
         "corrupted_inference_replay_enabled": replay_inference,
+        "inference_repeats": inference_repeats,
         "source_files_checked": len(protocol["source_sha256"]),
         "audit_tool_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
         "inference_replay_limits": inference_limits, "inference_replay_checks": inference_checks,
@@ -205,9 +213,10 @@ def main():
     parser.add_argument("folder", type=Path)
     parser.add_argument("--real-crypto", action="store_true")
     parser.add_argument("--replay-inference", action="store_true")
+    parser.add_argument("--inference-repeats", type=int, choices=range(1, 11), default=1)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    result = audit(args.folder, args.real_crypto, args.replay_inference)
+    result = audit(args.folder, args.real_crypto, args.replay_inference, args.inference_repeats)
     with args.output.open("x", encoding="utf-8") as out:
         json.dump(result, out, ensure_ascii=False, indent=2)
     print(json.dumps({"counts": result["counts"], "saved_arrays_and_states_consistent": True,

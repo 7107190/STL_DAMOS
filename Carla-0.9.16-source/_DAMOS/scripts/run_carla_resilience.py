@@ -14,6 +14,7 @@ import sys
 
 from fault_catalog import PIPELINE_CASE_NAMES
 from bev_fault_quality import INJECTION_SETTINGS, QUALITY_LIMITS, INFERENCE_REPLAY_LIMITS
+from bev_model_runtime import CUDA_INFERENCE_POLICY
 
 CASE_NAMES = list(PIPELINE_CASE_NAMES)
 
@@ -68,7 +69,8 @@ def main():
          "bev_protocol.py", "bev_fusion.py", "bev_model_runtime.py", "bev_sensor_rig.py",
          "fault_catalog.py", "bev_fault_quality.py", "audit_carla_resilience.py",
          "render_carla_resilience.py", "bev_occupancy.py", "bev_ground_guard.py")],
-         root.parent / "sensor_config.txt"]
+         root.parent / "sensor_config.txt", root / "_DAMOS/vendor/yerin_bev/models_bev.py",
+         root / "_DAMOS/vendor/yerin_bev/prism_v2.json"]
     source = freeze_source(files, output)
     write_json(output / "protocol.json", {"created_utc": datetime.now(timezone.utc).isoformat(),
         "cases": args.cases, "weathers": args.weathers, "scenario": "S5", "ego_only": True,
@@ -78,6 +80,7 @@ def main():
         "phases": {"baseline_rounds": 3, "fault_rounds": 1, "recovery_rounds": 3},
         "quality_limits": QUALITY_LIMITS, "quality_injection_settings": INJECTION_SETTINGS,
         "inference_replay_limits": INFERENCE_REPLAY_LIMITS,
+        "inference_policy": CUDA_INFERENCE_POLICY,
         "camera_degradation_variant": "severe defocus blur; other camera degradation variants not covered",
         "receive_timeout_s": args.receive_timeout_s, "maximum_round_age_s": 20.,
         "brake_check": "separate controlled initial 2m/s to <=0.2m/s within 5 simulation seconds",
