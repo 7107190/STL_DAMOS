@@ -10,7 +10,8 @@ import numpy as np
 
 from bev_fusion import fuse_bevs
 from bev_protocol import encode_bev, hashes, validate_manifest
-from bev_resilience import ServicePolicy, empty_reference, inject_input, inspect_input
+from bev_resilience import (MODEL_OUTPUT_GUARD, ServicePolicy, empty_reference,
+                            inject_input, inspect_input, inspect_model_output)
 from bev_fault_quality import (QUALITY_FAULTS, INFERENCE_REPLAY_LIMITS,
                                load_raw_task, nominal_calibration_task)
 from resilience_weather import weather_mismatches
@@ -48,7 +49,8 @@ def audit(folder, real_crypto=False, replay_inference=False, inference_repeats=1
               "groth16_proofs_reverified": 0, "case_verdicts": 0, "wire_attacks_checked": 0,
               "quality_raw_replays": 0, "corrupted_inference_replays": 0,
               "initial_weather_checks": 0, "weather_observations_checked": 0,
-              "rendering_quality_checks": 0}
+              "rendering_quality_checks": 0, "model_output_checks": 0,
+              "stale_output_rejections": 0, "retained_output_replays": 0}
     checks, inference_checks = [], []
     inference_limits = protocol.get("inference_replay_limits", INFERENCE_REPLAY_LIMITS)
     for execution in summary["executions"]:
@@ -80,6 +82,7 @@ def audit(folder, real_crypto=False, replay_inference=False, inference_repeats=1
         assert registry["actor_ids"] == {n: r["actor_id"] for n, r in scene["actors"].items()}
         assert execution["returncode"] == 0 and execution["summary"]["fatal_error"] is None
         camera_events = scene.get("physical_camera_replacements", [])
+        last_outputs = {}
         if any(case["case"] == "camera_misalignment" for case in execution["summary"]["cases"]):
             assert [event["misaligned"] for event in camera_events] == [True, False]
             assert all(event["old_sensor_id"] != event["new_sensor_id"] for event in camera_events)
@@ -110,6 +113,40 @@ def audit(folder, real_crypto=False, replay_inference=False, inference_repeats=1
                     commitment = registry["peers"][node]["commitment"]
                     assert manifest["registered_commitment"] == commitment
                     assert packet["public_inputs"] == [commitment, *hashes(manifest)]
+                    if protocol.get("model_output_guard") is not None:
+                        assert protocol["model_output_guard"] == MODEL_OUTPUT_GUARD
+                        assert manifest["frame_id"] == record["frame_id"]
+                        assert manifest["capture_sim_ns"] == record["capture_sim_ns"]
+                        if row["inference"] is not None or row["fault_injection"].get("input") == "output_freeze":
+                            assert "model_output" in row
+                        if "model_output" in row:
+                            metadata = load_json(node_dir / f"{node}_model_output.json")
+                            assert metadata == row["model_output"]
+                            expected = row["model_output_expected"]
+                            assert expected["round_id"] == record["round_id"]
+                            assert expected["frame_id"] == record["frame_id"]
+                            assert expected["capture_sim_ns"] == record["capture_sim_ns"]
+                            assert expected["started_ns"] == row["started_ns"]
+                            assert expected["deadline_ns"] == row["deadline_ns"]
+                            assert expected["deadline_ns"] - expected["started_ns"] == round(protocol["receive_timeout_s"] * 1e9)
+                            output_health = inspect_model_output(metadata, **expected)
+                            assert output_health == row["model_output_health"]
+                            counts["model_output_checks"] += 1
+                            if not output_health["usable"]:
+                                assert not row["health"]["usable"] and not row["local_usable"]
+                                assert set(output_health["issues"]) <= set(row["health"]["issues"])
+                                assert not load_npz(node_dir / f"{node}_own.npz")["valid"].any()
+                                rejected = load_npz(node_dir / f"{node}_rejected_output.npz")
+                                if "STALE_MODEL_OUTPUT" in output_health["issues"]:
+                                    counts["stale_output_rejections"] += 1
+                                if row["fault_injection"].get("input") == "output_freeze":
+                                    previous_metadata, previous_body = last_outputs[node]
+                                    assert metadata == previous_metadata
+                                    assert encode_bev(rejected) == previous_body
+                                    assert row["inference"] is None
+                                    counts["retained_output_replays"] += 1
+                            elif row["health"]["usable"]:
+                                last_outputs[node] = (metadata, body)
                     if backend is not None:
                         valid, _ = backend.verify_auth_proof(packet["proof"], packet["public_inputs"])
                         assert valid
@@ -220,6 +257,20 @@ def audit(folder, real_crypto=False, replay_inference=False, inference_repeats=1
             assert phases["baseline"][-1]["decision"]["state"] == "NORMAL"
             assert phases["fault"][0]["decision"]["state"] == case["expected_fault_state"]
             assert [r["decision"]["state"] for r in phases["recovery"]] == ["RECOVERING", "RECOVERING", "NORMAL"]
+            if case["case"] == "output_freeze" and protocol.get("model_output_guard"):
+                baseline = phases["baseline"][-1]["ego"]
+                frozen = phases["fault"][0]["ego"]
+                current = phases["fault"][0]
+                assert frozen["model_output"] == baseline["model_output"]
+                assert frozen["model_output"]["frame_id"] < current["frame_id"]
+                assert frozen["model_output"]["capture_sim_ns"] < current["capture_sim_ns"]
+                assert frozen["health"]["issues"] == ["STALE_MODEL_OUTPUT"]
+                assert frozen["health"]["lidar_frame_id"] == current["frame_id"]
+                assert frozen["health"]["capture_sim_ns"] == current["capture_sim_ns"]
+                assert all(c["frame_id"] == current["frame_id"] for c in frozen["health"]["camera_evidence"].values())
+                assert not frozen["model_output_health"]["usable"]
+                assert len(frozen["usable_peer_ids"]) == 1 and frozen["local_observed_cells"] == 0
+                assert all(r["ego"]["model_output_health"]["usable"] for r in phases["recovery"])
             counts["case_verdicts"] += 1
             checks.append({"weather": case["weather"], "case": case["case"],
                            "criterion_pass": case["criterion_pass"]})

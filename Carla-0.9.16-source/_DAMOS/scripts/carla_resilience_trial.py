@@ -194,7 +194,8 @@ def run_trial(rig, report_root, plan_path, *, scenic_proc, assignments, on_tick=
                     location = ego.get_location()
                     driving = world.get_map().get_waypoint(location, False, carla.LaneType.Driving) is not None
                     record = {"phase": phase, "phase_index": index + 1, "round_id": round_id,
-                        "frame_id": window[-1], "capture_sim_ns": row["health"]["capture_sim_ns"],
+                        "frame_id": window[-1], "capture_sim_ns": round(
+                            tasks["ego"]["packets"][tasks["ego"]["label"], "lidar"][-1]["timestamp"] * 1e9),
                         "decision": decision, "ego": row, "peers": rows,
                         "weather_observation": weather_observation,
                         "parent_round_seconds_including_artifact_wait": wall_elapsed,
@@ -224,6 +225,19 @@ def run_trial(rig, report_root, plan_path, *, scenic_proc, assignments, on_tick=
                                           if expected == "SAFE_STOP" else True)}
             if name in ("packet_tamper", "packet_replay", "invalid_proof"):
                 checks["attack_rejected"] = bool(fault_row["ego"]["rejected_packets"])
+            if name == "output_freeze":
+                frozen, previous = fault_row["ego"], baseline[-1]["ego"]
+                checks.update(
+                    retained_real_output_provenance=frozen.get("model_output") == previous.get("model_output"),
+                    fresh_sensor_input=frozen["health"]["lidar_frame_id"] == fault_row["frame_id"]
+                        and frozen["health"]["capture_sim_ns"] == fault_row["capture_sim_ns"]
+                        and frozen["health"]["issues"] == ["STALE_MODEL_OUTPUT"],
+                    autonomous_output_guard_rejected=not frozen["model_output_health"]["usable"]
+                        and "STALE_MODEL_OUTPUT" in frozen["model_output_health"]["issues"],
+                    invalid_local_not_published_or_fused=frozen["local_observed_cells"] == 0
+                        and not frozen["local_usable"],
+                    authenticated_peer_replacement=len(frozen["usable_peer_ids"]) == 1,
+                    recovery_outputs_fresh=all(r["ego"]["model_output_health"]["usable"] for r in recovery))
             if expected_weather is not None:
                 checks["weather_matches_frozen_plan"] = all(r["weather_observation"]["matches_plan"] for r in rounds)
             if name in QUALITY_FAULTS:

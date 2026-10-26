@@ -1,8 +1,10 @@
 """Synthetic unit fixtures only; not CARLA trials or formal accuracy samples."""
 from pathlib import Path
 import hashlib
+import queue
 import sys
 import tempfile
+import time
 from types import SimpleNamespace
 import unittest
 from unittest import mock
@@ -10,7 +12,8 @@ from unittest import mock
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from bev_resilience import ServicePolicy, empty_reference, inject_input, inspect_input
+from bev_resilience import (ServicePolicy, empty_reference, inject_input, inspect_input,
+                            inspect_model_output, model_output, run_service_round)
 
 NAMES = ("cam_front_left", "cam_front", "cam_front_right", "cam_back_left", "cam_back", "cam_back_right")
 
@@ -121,6 +124,114 @@ class InputTests(unittest.TestCase):
         result = empty_reference(np.eye(4))
         self.assertEqual(int(result["valid"].sum()), 0)
         self.assertTrue(np.isfinite(result["probabilities"]).all())
+
+
+class OutputFreshnessTests(unittest.TestCase):
+    def setUp(self):
+        self.expected = dict(round_id=2, frame_id=12, capture_sim_ns=1200000000,
+                             started_ns=100, deadline_ns=200, checked_ns=160)
+        self.result = model_output(empty_reference(np.eye(4)), round_id=2, frame_id=12,
+            capture_sim_ns=1200000000, started_ns=110, completed_ns=150)
+
+    def inspect(self, metadata=None, **changes):
+        return inspect_model_output(self.result["metadata"] if metadata is None else metadata,
+                                    **dict(self.expected, **changes))
+
+    def test_current_actual_completion_accepted(self):
+        self.assertTrue(self.inspect()["usable"])
+
+    def test_old_source_rejected_without_any_fault_label(self):
+        for key in ("round_id", "frame_id", "capture_sim_ns", "started_ns"):
+            with self.subTest(field=key):
+                changed = dict(self.result["metadata"], **{key: self.expected[key] - 1})
+                self.assertEqual(self.inspect(changed)["issues"], ["STALE_MODEL_OUTPUT"])
+
+    def test_missing_or_malformed_provenance_rejected(self):
+        for metadata in ({}, [], None, {"schema": "unknown"}):
+            with self.subTest(metadata=metadata):
+                row = inspect_model_output(metadata, **self.expected)
+                self.assertEqual(row["issues"], ["INVALID_MODEL_OUTPUT_METADATA"])
+        for value in (True, "12", 12., -1):
+            changed = dict(self.result["metadata"], frame_id=value)
+            self.assertFalse(self.inspect(changed)["usable"])
+
+    def test_completion_cannot_precede_start_or_be_in_future(self):
+        for completed in (109, 161):
+            self.assertIn("INVALID_MODEL_OUTPUT_TIME", self.inspect(
+                dict(self.result["metadata"], completed_ns=completed))["issues"])
+
+    def test_deadline_enforced_without_sleep(self):
+        self.assertEqual(self.inspect(checked_ns=201)["issues"], ["MODEL_OUTPUT_DEADLINE"])
+        self.assertTrue(self.inspect(checked_ns=200)["usable"])
+
+    def test_same_bev_content_with_new_completion_is_not_a_freeze(self):
+        other = model_output(self.result["prediction"], round_id=3, frame_id=13,
+            capture_sim_ns=1300000000, started_ns=210, completed_ns=250)
+        self.assertIs(other["prediction"], self.result["prediction"])
+        self.assertTrue(inspect_model_output(other["metadata"], round_id=3, frame_id=13,
+            capture_sim_ns=1300000000, started_ns=200, deadline_ns=300, checked_ns=260)["usable"])
+
+
+class OutputServiceTests(unittest.TestCase):
+    def setUp(self):
+        self.prediction = empty_reference(np.eye(4))
+        self.prediction["valid"][:3, :3] = 1
+        self.predictor = SimpleNamespace(checkpoint_hash="fixture", step=1, fusion_mode="weighted",
+            infer=mock.Mock(return_value=(self.prediction, {"synthetic_fixture": True})))
+
+    def run_round(self, directory, frame=12, cache=None, fault=None, override=None):
+        task = {"started_ns": time.perf_counter_ns(), "service_timeout_s": 8,
+                "input": sample(frame), "fault": fault or {}, "round_id": frame - 10,
+                "graph": {"ego": []}, "save_dir": str(Path(directory) / str(frame))}
+        modules = {"bev_live": SimpleNamespace(task_pose=lambda _: np.eye(4)),
+            "bev_sensor_rig": SimpleNamespace(CAMERAS=NAMES, HEIGHT=2, WIDTH=2),
+            "bev_occupancy": SimpleNamespace(render_presence=lambda _: np.zeros((2, 2, 3), np.uint8))}
+        prepare = lambda s: ({"timestamps": np.array([s["packets"]["ego", "lidar"][-1]["timestamp"]])}, {})
+        with mock.patch.dict(sys.modules, modules), \
+                mock.patch("bev_resilience.inspect_quality", return_value={"issues": []}), \
+                mock.patch("bev_resilience.protect_bev", return_value=({}, b"fixture", {})) as protect, \
+                mock.patch("bev_resilience.model_output", side_effect=override or model_output):
+            row = run_service_round("ego", task, {"session_id": "fixture", "addresses": {}},
+                self.predictor, None, None, None, None, SimpleNamespace(items=queue.Queue()),
+                {} if cache is None else cache, prepare)
+        return row, protect.call_args.args[3]
+
+    def test_unlabelled_old_output_not_signed_or_fused(self):
+        stale = model_output(self.prediction, round_id=1, frame_id=11,
+            capture_sim_ns=1100000000, started_ns=1, completed_ns=2)
+        with tempfile.TemporaryDirectory() as directory:
+            row, published = self.run_round(directory, override=lambda *a, **k: stale)
+            self.assertEqual(row["fault_injection"], {})
+            self.assertEqual(row["health"]["issues"], ["STALE_MODEL_OUTPUT"])
+            self.assertFalse(row["local_usable"])
+            self.assertEqual(row["local_observed_cells"], 0)
+            self.assertFalse(published["valid"].any())
+            saved = Path(directory) / "12" / "ego_rejected_output.npz"
+            with np.load(saved, allow_pickle=False) as data:
+                np.testing.assert_array_equal(data["valid"], self.prediction["valid"])
+
+    def test_injected_freeze_uses_same_guard_and_preserves_provenance(self):
+        cache = {}
+        with tempfile.TemporaryDirectory() as directory:
+            normal, _ = self.run_round(directory, cache=cache)
+            frozen, published = self.run_round(directory, frame=13, cache=cache,
+                                               fault={"input": "output_freeze"})
+            self.assertEqual(normal["model_output"], frozen["model_output"])
+            self.assertEqual(frozen["health"]["issues"], ["STALE_MODEL_OUTPUT"])
+            self.assertFalse(published["valid"].any())
+            self.assertEqual(self.predictor.infer.call_count, 1)
+            recovered, _ = self.run_round(directory, frame=14, cache=cache)
+            self.assertTrue(recovered["model_output_health"]["usable"])
+            self.assertTrue(recovered["local_usable"])
+
+    def test_identical_fresh_predictions_remain_usable(self):
+        cache = {}
+        with tempfile.TemporaryDirectory() as directory:
+            for frame in (12, 13, 14):
+                row, published = self.run_round(directory, frame=frame, cache=cache)
+                self.assertTrue(row["model_output_health"]["usable"])
+                self.assertTrue(row["local_usable"])
+                np.testing.assert_array_equal(published["valid"], self.prediction["valid"])
 
 
 class CompletionTests(unittest.TestCase):

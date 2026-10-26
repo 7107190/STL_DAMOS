@@ -19,6 +19,41 @@ from m2x.transport import send_image
 INPUT_FAULTS = ("none", "front_blackout", "lidar_missing", "sensor_delay",
                 "output_freeze", "rgb_lidar_failure", *QUALITY_FAULTS)
 WIRE_FAULTS = ("none", "drop", "tamper", "replay", "bad_proof")
+MODEL_OUTPUT_GUARD = "DAMOS_MODEL_OUTPUT_FRESHNESS_V1"
+
+
+def model_output(prediction, *, round_id, frame_id, capture_sim_ns, started_ns, completed_ns):
+    # Provenance is created once at actual inference completion, never on cache retrieval.
+    return {"prediction": prediction, "metadata": {
+        "schema": MODEL_OUTPUT_GUARD, "round_id": round_id, "frame_id": frame_id,
+        "capture_sim_ns": capture_sim_ns, "started_ns": started_ns,
+        "completed_ns": completed_ns}}
+
+
+def inspect_model_output(metadata, *, round_id, frame_id, capture_sim_ns,
+                         started_ns, deadline_ns, checked_ns):
+    """Validate completion provenance without an injection flag or BEV-content heuristic."""
+    fields = ("round_id", "frame_id", "capture_sim_ns", "started_ns", "completed_ns")
+    valid = (isinstance(metadata, dict) and metadata.get("schema") == MODEL_OUTPUT_GUARD
+             and all(type(metadata.get(key)) is int and metadata[key] >= 0 for key in fields))
+    checks = {"metadata_valid": valid}
+    if not valid:
+        return {"usable": False, "issues": ["INVALID_MODEL_OUTPUT_METADATA"], "checks": checks}
+    checks.update(round_matches=metadata["round_id"] == round_id,
+        frame_matches=metadata["frame_id"] == frame_id,
+        capture_matches=metadata["capture_sim_ns"] == capture_sim_ns,
+        inference_started_this_round=metadata["started_ns"] >= started_ns,
+        completion_time_valid=metadata["started_ns"] <= metadata["completed_ns"] <= checked_ns,
+        within_deadline=checked_ns <= deadline_ns)
+    issues = []
+    if not all(checks[key] for key in ("round_matches", "frame_matches", "capture_matches",
+                                       "inference_started_this_round")):
+        issues.append("STALE_MODEL_OUTPUT")
+    if not checks["completion_time_valid"]:
+        issues.append("INVALID_MODEL_OUTPUT_TIME")
+    if not checks["within_deadline"]:
+        issues.append("MODEL_OUTPUT_DEADLINE")
+    return {"usable": not issues, "issues": issues, "checks": checks}
 
 
 def empty_reference(pose):
@@ -133,26 +168,26 @@ def run_service_round(node, task, settings, predictor, backend, secret, commitme
     health = inspect_input(sample, frame, quality_reference)
     row = {"event": "service_round", "node_id": node, "round_id": task["round_id"],
            "frame_id": frame, "fault_injection": fault, "health": health,
+           "started_ns": started, "deadline_ns": deadline,
            "verified_peer_ids": [], "usable_peer_ids": [], "rejected_packets": [],
            "status": "service_error", "metric2_pass": None, "errors": []}
     own, body, packet, arrays, inference = reference, None, None, None, None
-    candidate = None
-    capture_ns = health["capture_sim_ns"]
-    output_frame = sample["window"][-1]
+    candidate, result = None, None
     if fault.get("input") == "output_freeze":
-        if "prediction" not in cache:
+        if "model_output" not in cache:
             raise ValueError("Output freeze requires a retained real prediction")
-        own = cache["prediction"]
-        output_frame, capture_ns = cache["prediction_frame"], cache["prediction_capture_ns"]
-        health["usable"] = False
-        health["issues"].append("STALE_MODEL_OUTPUT")
+        result = cache["model_output"]
         row["inference_skipped"] = "retained actual earlier prediction, not OS process termination"
     elif health["usable"] or fault.get("input") in QUALITY_FAULTS:
         try:
             model_sample = nominal_calibration_task(sample) if fault.get("input") == "camera_misalignment" else sample
             arrays, row["input"] = prepare(model_sample)
+            inference_started = time.perf_counter_ns()
             candidate, inference = predictor.infer(arrays)
-            own = candidate if health["usable"] else reference
+            result = model_output(candidate, round_id=task["round_id"],
+                frame_id=sample["window"][-1],
+                capture_sim_ns=round(float(arrays["timestamps"][-1]) * 1e9),
+                started_ns=inference_started, completed_ns=time.perf_counter_ns())
             if fault.get("input") in QUALITY_FAULTS:
                 row["quality_candidate"] = {"actual_inference_executed": True,
                     "rejected_before_publish_or_fusion": not health["usable"],
@@ -165,8 +200,22 @@ def run_service_round(node, task, settings, predictor, backend, secret, commitme
     else:
         row["inference_skipped"] = "invalid raw input; explicitly unknown reference only"
     row["inference"] = inference
-    if inference is not None and health["usable"]:
-        cache.update(prediction=own, prediction_frame=output_frame, prediction_capture_ns=capture_ns)
+    if result is not None:
+        checked = time.perf_counter_ns()
+        expected_output = {"round_id": task["round_id"], "frame_id": frame,
+            "capture_sim_ns": round(current["packets"][current["label"], "lidar"][-1]["timestamp"] * 1e9),
+            "started_ns": started, "deadline_ns": deadline, "checked_ns": checked}
+        row["model_output"] = result["metadata"]
+        row["model_output_expected"] = expected_output
+        output_health = inspect_model_output(result["metadata"], **expected_output)
+        row["model_output_health"] = output_health
+        health["issues"].extend(output_health["issues"])
+        health["usable"] = health["usable"] and output_health["usable"]
+        if health["usable"]:
+            own = result["prediction"]
+            cache["model_output"] = result
+    # Rejected output is neither signed nor fused; publish an explicitly unknown current BEV.
+    output_frame, capture_ns = frame, round(current["packets"][current["label"], "lidar"][-1]["timestamp"] * 1e9)
     graph = task["graph"]
     expected = graph[node]
     shared, received_records = {}, {}
@@ -256,6 +305,10 @@ def run_service_round(node, task, settings, predictor, backend, secret, commitme
         if candidate is not None:
             np.savez_compressed(folder / f"{node}_rejected_candidate.npz", **candidate)
     np.savez_compressed(folder / f"{node}_own.npz", **own)
+    if result is not None:
+        (folder / f"{node}_model_output.json").write_text(json.dumps(result["metadata"], indent=2))
+        if not row["model_output_health"]["usable"]:
+            np.savez_compressed(folder / f"{node}_rejected_output.npz", **result["prediction"])
     for sender, decoded in shared.items():
         np.savez_compressed(folder / f"{node}_received_{sender}.npz", **decoded)
     if node == "ego":

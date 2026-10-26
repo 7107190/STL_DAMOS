@@ -15,6 +15,7 @@ import sys
 from fault_catalog import PIPELINE_CASE_NAMES
 from bev_fault_quality import INJECTION_SETTINGS, QUALITY_LIMITS, INFERENCE_REPLAY_LIMITS
 from bev_model_runtime import CUDA_INFERENCE_POLICY
+from bev_resilience import MODEL_OUTPUT_GUARD
 from resilience_weather import BASE_WEATHER_NAMES, LEGACY_WEATHER_NAMES, resolve_weather
 
 CASE_NAMES = list(PIPELINE_CASE_NAMES)
@@ -89,6 +90,7 @@ def main():
         "quality_limits": QUALITY_LIMITS, "quality_injection_settings": INJECTION_SETTINGS,
         "inference_replay_limits": INFERENCE_REPLAY_LIMITS,
         "inference_policy": CUDA_INFERENCE_POLICY,
+        "model_output_guard": MODEL_OUTPUT_GUARD,
         "camera_degradation_variant": "severe defocus blur; other camera degradation variants not covered",
         "receive_timeout_s": args.receive_timeout_s, "maximum_round_age_s": 20.,
         "brake_check": "separate controlled initial 2m/s to <=0.2m/s within 5 simulation seconds",

@@ -126,7 +126,7 @@ _DAMOS/scripts/run_scenic_custom_walkers_town10hd.sh \
 
 ## S5 고장 대응 시험
 
-**설계된 고장 주입에 대한 배제·대체·정지 요구·복귀 시험. 장애물 검출률 시험이나 모든 고장의 자동 진단 시험은 아님.** F09의 직접 표시 예외를 포함한 [판정 기준](consulting_response.md#고장을-판단하는-방법)을 먼저 확인.
+**설계된 고장 주입에 대한 배제·대체·정지 요구·복귀 시험. 장애물 검출률 시험이나 모든 고장의 자동 진단 시험은 아님.** F09는 과거 결과의 프레임·시각·추론 완료 기록을 독립 검사. [판정 기준과 한계](consulting_response.md#고장을-판단하는-방법) 확인.
 
 아래 명령은 S5·기본 네 날씨·고장 15종·Epic 모드 60조건. 기존 포트를 사용 중이면 빈 포트 선택, 결과 폴더는 매 실행 새로 생성.
 
@@ -140,7 +140,7 @@ OUT=/home/vvu/vv/_Data/Carla/Columbus/DAMOS_results/resilience_$(date -u +%Y%m%d
   --output "$OUT"
 ```
 
-`--cases front_blackout`처럼 조건을 줄여 예비시험 가능. 실패·미완료 시 종료 코드와 `summary.json` 확인, 기준을 낮추거나 같은 폴더를 덮어쓰지 않음. 결과의 정상 복귀는 인지 서비스 복귀이며 운행 자동 재개 아님.
+`--cases output_freeze`를 위 실행 명령에 추가하면 F09만 네 날씨에서 검증. `front_blackout` 등 다른 조건 선택도 가능. 실패·미완료 시 종료 코드와 `summary.json` 확인, 기준을 낮추거나 같은 폴더를 덮어쓰지 않음. 정상 복귀는 인지 서비스 복귀이며 운행 자동 재개 아님.
 
 같은 SSH 세션에서 저장된 결과 감사. 실제 증명·병합·상태 재검증 및 손상 입력 모델 3회 재추론:
 
@@ -204,6 +204,7 @@ env DAMOS_BEV_CHECKPOINT=/home/vvu/vv/DAMOS/Carla-0.9.16-source/_DAMOS/models/ye
 | `round_*/evaluation.json` | 평가 옵션 사용 시 정답 대조·존재·가림 진단 |
 | 고장 시험 `protocol.json`, `frozen_source/` | 사전 조건·소스/설정·해시 |
 | 고장 시험 `summary.json`, `audit_*.json` | 조건별 대응 판정·독립 감사 |
+| F09 `*_model_output.json`, `*_rejected_output.npz` | 추론 당시 출처·완료시각, 거부된 원본 BEV. 실제 송신·병합은 현재 좌표의 미관측 BEV 사용 |
 | `bev_video_*/passby_2x3.mp4`, `capture.json` | 동기 영상·실제 제어기·프레임·센서 내용 검사 |
 
 최신 60조건의 원본·그림·집계 파일 위치는 [증빙](consulting_response.md#증빙-위치) 참조. 저장물·영상·가중치는 Git에 올리지 않음.
