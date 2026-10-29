@@ -1,6 +1,6 @@
 # DAMOS 사용법
 
-문서 갱신: 2026-10-26. 현재 결과와 범위는 [README](../README.md), 고장 판단·통과 기준은 [검증 기술문서](consulting_response.md) 참조. 이 문서는 설치·실행 방법만 다룸.
+문서 갱신: 2026-10-29. 현재 결과와 범위는 [README](../README.md), 고장 판단·통과 기준과 피드백 대응은 [검증 기술문서](consulting_response.md) 참조. 이 문서는 설치·실행 방법만 다룸.
 
 ## vvu에서 시작
 
@@ -338,10 +338,25 @@ python -X utf8 -B tools/verify_submission.py .
 
 ```bash
 # 3번항목_메타데이터.zip 루트
-python -X utf8 -B tools/verify_metric3_100.py .
+python -X utf8 -B tools/verify_metric3_retest.py .
 ```
 
-코드·문서는 Git, 가중치·입력·검증 JSON·영상은 별도 공유. 원본 시험 폴더·제출 ZIP은 덮어쓰지 않음. 과거 수집·학습·후보 선정의 세부 명령은 [정리 전 사용법](https://github.com/7107190/STL_DAMOS/blob/e018060cf17b0d2991ee3a703cfbe4f1b5723d26/docs/usage.md)에 보존.
+**최신 3번 제출자료 확인:**
+
+- 파일: `공인인증평가/3번항목_메타데이터.zip`.
+- 정상 평가 100건·성공 97건·탐지 실패 3건·미완료 실행 오류 0건 확인.
+- `retest_plan.json`, `condition_comparison.json`으로 실행 오류 7건의 동일 조건 재평가 확인.
+- `previous_execution_attempts/`에 최초 오류 기록 보존.
+- 619개 시점별 판정 자료는 독립 시험 100건과 구분.
+- ZIP SHA-256: `ce0fdbe9567fcb55821199161ab9c488025db4248117c477b3060cff4888ddbf`.
+
+**피드백 대응 자료:**
+
+- 요약: [README](../README.md#컨설팅-피드백-대응).
+- 원문 목차·현재 대응·반영 위치·후속 계획: [컨설팅 보완 대응](consulting_response.md#컨설팅-보완-대응).
+- 실패 원인·수정·재검증: [5번 대응](consulting_response.md#5-실패-분석과-변경재검증).
+
+코드·문서는 Git, 가중치·입력·검증 JSON·영상은 별도 공유. 원본 시험 폴더와 최초 오류 기록 보존, 최신 제출자료와 과거 참고본 구분. 과거 수집·학습·후보 선정의 세부 명령은 [정리 전 사용법](https://github.com/7107190/STL_DAMOS/blob/e018060cf17b0d2991ee3a703cfbe4f1b5723d26/docs/usage.md)에 보존.
 
 ## 자주 나는 문제
 
