@@ -1,6 +1,6 @@
 # DAMOS 사용법
 
-문서 갱신: 2026-10-31. 핵심 요약은 [README](../README.md), 센서·모듈·코드 경로는 [시스템 상세](system.md), 성능지표와 제출자료 위치는 [평가와 증빙](evaluation.md), 고장 판단·피드백 대응은 [컨설팅 보완 대응](consulting_response.md) 참조. 이 문서는 설치·실행 방법만 다룸.
+문서 갱신: 2026-10-31. 이 문서는 환경 설정·코드 경로·실행·결과 확인 전용. 연구·구현 내용은 [2025년](2025.md)·[2026년](2026.md), 평가 기준·증빙은 [성능지표](metrics.md), 남은 작업은 [준비 현황](status.md) 참조.
 
 ## vvu에서 시작
 
@@ -124,7 +124,7 @@ env DAMOS_BEV_CHECKPOINT=/home/vvu/vv/DAMOS/Carla-0.9.16-source/_DAMOS/models/ye
 - 기본값 `off`. 환경변수 생략 또는 `DAMOS_BEV_EVIDENCE_FUSION=off`이면 선택한 체크포인트의 기존 병합 사용.
 - `weighted` 모드의 원본 체크포인트와 함께 활성화하면 오류로 종료. 위 체크포인트를 함께 지정.
 - 로그의 `evidence_fusion.policy`, `relative_promoted_cells`, `elapsed_ms`로 적용 확인.
-- S1·S3 지정 4조건·120샘플 검증 결과는 [검증 기술문서](consulting_response.md#5-실패-분석과-변경재검증) 참조. 고장 대응 서비스 경로에는 적용하지 않음.
+- S1·S3 지정 4조건·120샘플 검증 결과는 [2026년 수행내용](2026.md#5-실패-분석과-변경재검증) 참조. 고장 대응 서비스 경로에는 적용하지 않음.
 
 ### 센서 입력만 저장
 
@@ -151,7 +151,7 @@ _DAMOS/scripts/run_scenic_custom_walkers_town10hd.sh \
 
 ## S5 고장 대응 시험
 
-**설계된 고장 주입에 대한 배제·대체·정지 요구·복귀 시험. 장애물 검출률 시험이나 모든 고장의 자동 진단 시험은 아님.** F09는 과거 결과의 프레임·시각·추론 완료 기록을 독립 검사. [판정 기준과 한계](consulting_response.md#고장을-판단하는-방법) 확인.
+**설계된 고장 주입에 대한 배제·대체·정지 요구·복귀 시험. 장애물 검출률 시험이나 모든 고장의 자동 진단 시험은 아님.** F09는 과거 결과의 프레임·시각·추론 완료 기록을 독립 검사. [판정 기준과 한계](2026.md#고장을-판단하는-방법) 확인.
 
 아래 명령은 S5·기본 네 날씨·고장 15종·Epic 모드 60조건. 기존 포트를 사용 중이면 빈 포트 선택, 결과 폴더는 매 실행 새로 생성.
 
@@ -232,7 +232,7 @@ env DAMOS_BEV_CHECKPOINT=/home/vvu/vv/DAMOS/Carla-0.9.16-source/_DAMOS/models/ye
 | F09 `*_model_output.json`, `*_rejected_output.npz` | 추론 당시 출처·완료시각, 거부된 원본 BEV. 실제 송신·병합은 현재 좌표의 미관측 BEV 사용 |
 | `bev_video_*/passby_2x3.mp4`, `capture.json` | 동기 영상·실제 제어기·프레임·센서 내용 검사 |
 
-최신 60조건의 원본·그림·집계 파일 위치는 [증빙](consulting_response.md#증빙-위치) 참조. 저장물·영상·가중치는 Git에 올리지 않음.
+최신 60조건의 원본·그림·집계 파일 위치는 [증빙](2026.md#고장-대응-증빙) 참조. 저장물·영상·가중치는 Git에 올리지 않음.
 
 ## 새 컴퓨터 설정
 
@@ -377,9 +377,9 @@ python -X utf8 -B tools/verify_metric3_retest.py .
 
 **피드백 대응 자료:**
 
-- 요약·현재 담당 상태: [컨설팅 보완 대응](consulting_response.md#컨설팅-보완-대응), [연말 제출 준비 현황](year_end_status.md).
-- 원문 목차·현재 대응·반영 위치·후속 계획: [컨설팅 보완 대응](consulting_response.md#컨설팅-보완-대응).
-- 실패 원인·수정·재검증: [5번 대응](consulting_response.md#5-실패-분석과-변경재검증).
+- 요약·현재 담당 상태: [컨설팅 보완 대응](status.md#컨설팅-대응-현황), [연말 제출 준비 현황](status.md).
+- 원문 목차·현재 대응·반영 위치·후속 계획: [컨설팅 보완 대응](status.md#컨설팅-대응-현황).
+- 실패 원인·수정·재검증: [5번 대응](2026.md#5-실패-분석과-변경재검증).
 - 10월 31일 개선 자료: `DAMOS_results/perception_relative_20261031_v1/`의 `final_results.json`, `metadata.tar.gz`, `backup_manifest.json`. 기존 제출 ZIP과 별도 보관.
 
 코드·문서는 Git, 가중치·입력·검증 JSON·영상은 별도 공유. 원본 시험 폴더와 최초 오류 기록 보존, 최신 제출자료와 과거 참고본 구분. 과거 수집·학습·후보 선정의 세부 명령은 [정리 전 사용법](https://github.com/7107190/STL_DAMOS/blob/e018060cf17b0d2991ee3a703cfbe4f1b5723d26/docs/usage.md)에 보존.
@@ -400,3 +400,45 @@ python -X utf8 -B tools/verify_metric3_retest.py .
 | 기준 가중치 없음 | 별도 전달·해시 확인, 원본으로 조용히 대체하지 않음 |
 | 결정적 CUDA 작업공간 충돌 | 오류 확인 후 외부 `CUBLAS_WORKSPACE_CONFIG` 해제, 새 프로세스에서 재실행 |
 | 영상은 있지만 종료 코드 실패 | `video_complete`와 coverage·접촉·센서 실패 기록을 함께 확인 |
+
+## 코드·실행 경로
+
+**저장소 성격:**
+
+- `/home/vvu/vv/DAMOS`와 같은 상대 경로의 **source overlay**.
+- 전체 CARLA/Unreal·Scenic checkout·커스텀 assets는 별도 필요.
+- 가중치·가상환경·데이터셋도 별도 필요.
+- clone만으로 실행 불가.
+
+```text
+STL_DAMOS/
+├── README.md                         # 전체 시스템·서브시스템·평가지표
+├── sensor_config.txt                 # 모빌리티별 센서 장착 기준
+├── docs/
+│   ├── 2025.md                       # 1차년도·서브시스템별 수행내용
+│   ├── 2026.md                       # 2차년도·서브시스템별 수행내용
+│   ├── metrics.md                    # 성능지표 1~4·평가·증빙
+│   ├── usage.md                      # 환경 설정·코드·실행·결과 확인
+│   ├── status.md                     # 남은 작업·연말 제출 준비
+│   └── meetings/
+│       └── meeting_261030.md         # 날짜별 회의 기록
+├── Carla-0.9.16-source/
+│   ├── _DAMOS/
+│   │   ├── _scenarios/               # Scenic S1~S9·공유 날씨
+│   │   ├── scripts/                  # 센서·인지·공유·병합·평가
+│   │   ├── tests/                    # 회귀시험
+│   │   └── vendor/                   # 제공 BEV·ZKP 구현
+│   ├── Scenic/Maps/                  # 도로 네트워크
+│   └── Unreal/CarlaUE4/Plugins/Carla/Source/Carla/Damos/
+├── UnrealEngine_4.26/README.md
+└── archive/
+```
+
+**작업·보존 위치:**
+
+- 주작업 루트: `/home/vvu/vv/DAMOS`.
+- 명령 실행 위치: `Carla-0.9.16-source`.
+- Git mirror: `_git/STL_DAMOS`.
+- 원시 입력·BEV·로그·영상·시험 원본은 Git에 미업로드.
+- Track 2 모델·실행 소스는 별도 제출 패키지에 포함.
+- Track 2를 이 트리의 BEV 모듈로 간주하지 않음.
