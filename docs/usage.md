@@ -1,6 +1,6 @@
 # DAMOS 사용법
 
-문서 갱신: 2026-10-29. 현재 결과와 범위는 [README](../README.md), 고장 판단·통과 기준과 피드백 대응은 [검증 기술문서](consulting_response.md) 참조. 이 문서는 설치·실행 방법만 다룸.
+문서 갱신: 2026-10-31. 현재 결과와 범위는 [README](../README.md), 고장 판단·통과 기준과 피드백 대응은 [검증 기술문서](consulting_response.md) 참조. 이 문서는 설치·실행 방법만 다룸.
 
 ## vvu에서 시작
 
@@ -100,6 +100,31 @@ env DAMOS_BEV_CHECKPOINT=/home/vvu/vv/DAMOS/Carla-0.9.16-source/_DAMOS/models/ye
 센서는 RGB 6개(800×450, FOV 90도)+일반 LiDAR 1개(64채널, 80m). 모델은 공통 4프레임 RGB와 현재 LiDAR를 사용. 센서 위치는 `sensor_config.txt` 기준, actor 재생성 없이 부착.
 
 BEV는 80×80m·0.4m 격자. 주황색은 장애물, 회색은 지면, 어두운 영역은 미관측. 표시용 보간은 공유·검출 근거에 미포함. 관측되지 않은 영역을 빈 공간이나 통행 가능으로 해석하지 않음.
+
+### 상대 신뢰도 병합 옵션
+
+vvu의 기존 BEV 실행에 `relative-v3` 적용. `ego_observed` 모드의 아래 체크포인트 사용.
+
+```bash
+cd /home/vvu/vv/DAMOS/Carla-0.9.16-source
+
+env DAMOS_BEV_CHECKPOINT=/home/vvu/vv/DAMOS/Carla-0.9.16-source/_DAMOS/models/yerin_bev/scenic_presence_ground_guard_20261008.pt \
+  DAMOS_BEV_EVIDENCE_FUSION=relative-v3 \
+  _DAMOS/scripts/run_scenic_custom_walkers_town10hd.sh \
+  --restart --offscreen --port 2620 --selected-scenario S1 \
+  --runs 1 --scenic-time 30 --realtime-factor 1.0 \
+  --quality-level Epic \
+  --live-bev-fusion --bev-rounds 3 --bev-radius-m 60 \
+  --evaluate-bev --no-trajectory-report
+```
+
+- Ego의 실제 추론·Groth16 수신 검증 후 병합 단계에 적용. 보정 시간도 Ego 처리시간에 포함.
+- 희소 LiDAR 구조 복원·고신뢰 감시자 관측 유지.
+- 점수 0.50 이상 0.60 미만 감시자 관측은 Ego 지면 점수보다 높은 경우에만 추가 반영.
+- 기본값 `off`. 환경변수 생략 또는 `DAMOS_BEV_EVIDENCE_FUSION=off`이면 선택한 체크포인트의 기존 병합 사용.
+- `weighted` 모드의 원본 체크포인트와 함께 활성화하면 오류로 종료. 위 체크포인트를 함께 지정.
+- 로그의 `evidence_fusion.policy`, `relative_promoted_cells`, `elapsed_ms`로 적용 확인.
+- S1·S3 지정 4조건·120샘플 검증 결과는 [검증 기술문서](consulting_response.md#5-실패-분석과-변경재검증) 참조. 고장 대응 서비스 경로에는 적용하지 않음.
 
 ### 센서 입력만 저장
 
@@ -355,6 +380,7 @@ python -X utf8 -B tools/verify_metric3_retest.py .
 - 요약: [README](../README.md#컨설팅-피드백-대응).
 - 원문 목차·현재 대응·반영 위치·후속 계획: [컨설팅 보완 대응](consulting_response.md#컨설팅-보완-대응).
 - 실패 원인·수정·재검증: [5번 대응](consulting_response.md#5-실패-분석과-변경재검증).
+- 10월 31일 개선 자료: `DAMOS_results/perception_relative_20261031_v1/`의 `final_results.json`, `metadata.tar.gz`, `backup_manifest.json`. 기존 제출 ZIP과 별도 보관.
 
 코드·문서는 Git, 가중치·입력·검증 JSON·영상은 별도 공유. 원본 시험 폴더와 최초 오류 기록 보존, 최신 제출자료와 과거 참고본 구분. 과거 수집·학습·후보 선정의 세부 명령은 [정리 전 사용법](https://github.com/7107190/STL_DAMOS/blob/e018060cf17b0d2991ee3a703cfbe4f1b5723d26/docs/usage.md)에 보존.
 

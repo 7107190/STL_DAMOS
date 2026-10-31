@@ -154,6 +154,24 @@ def _worker(node, commands, results, timeout_s, affinity):
                 phase = time.perf_counter_ns()
                 row["fusion_mode"] = getattr(predictor,"fusion_mode","weighted")
                 fused = fuse_bevs(own, [shared[n] for n in sorted(shared)],mode=row["fusion_mode"])
+                evidence_policy = os.environ.get("DAMOS_BEV_EVIDENCE_FUSION", "off")
+                if evidence_policy not in ("off", "relative-v3"):
+                    raise ValueError("UNKNOWN_EVIDENCE_FUSION_POLICY")
+                row["evidence_fusion"] = {"policy": "off"}
+                if node == "ego" and evidence_policy == "relative-v3":
+                    if row["fusion_mode"] != "ego_observed":
+                        raise ValueError("EVIDENCE_FUSION_REQUIRES_EGO_OBSERVED")
+                    from bev_lidar_calibration import geometry_features
+                    from bev_relative_fusion import PARAMETERS, relative_correction
+                    correction_start = time.perf_counter_ns()
+                    fused, correction = relative_correction(fused, own,
+                        [shared[n] for n in sorted(shared)], arrays["lidar_bev"],
+                        geometry_features(arrays["lidar_bev"]))
+                    row["evidence_fusion"] = {"policy": evidence_policy, "parameters": PARAMETERS,
+                        "relative_promoted_cells": int(correction["relative_promoted"].sum()),
+                        "local_promoted_cells": int(correction["strict_flags"]["local_promoted"].sum()),
+                        "strong_peer_promoted_cells": int(correction["strict_flags"]["peer_promoted"].sum()),
+                        "elapsed_ms": (time.perf_counter_ns()-correction_start)/1e6}
                 row["stages_ms"]["fusion"] = (time.perf_counter_ns()-phase)/1e6
                 row["status"] = "fusion_complete"
                 row["peer_added_cells"] = int(fused["peer_added_cells"].sum())
