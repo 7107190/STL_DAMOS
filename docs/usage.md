@@ -1,6 +1,6 @@
 # DAMOS 사용법
 
-문서 갱신: 2026-10-31. 현재 결과와 범위는 [README](../README.md), 고장 판단·통과 기준과 피드백 대응은 [검증 기술문서](consulting_response.md) 참조. 이 문서는 설치·실행 방법만 다룸.
+문서 갱신: 2026-10-31. 핵심 요약은 [README](../README.md), 센서·모듈·코드 경로는 [시스템 상세](system.md), 성능지표와 제출자료 위치는 [평가와 증빙](evaluation.md), 고장 판단·피드백 대응은 [컨설팅 보완 대응](consulting_response.md) 참조. 이 문서는 설치·실행 방법만 다룸.
 
 ## vvu에서 시작
 
@@ -377,7 +377,7 @@ python -X utf8 -B tools/verify_metric3_retest.py .
 
 **피드백 대응 자료:**
 
-- 요약: [README](../README.md#컨설팅-피드백-대응).
+- 요약·현재 담당 상태: [컨설팅 보완 대응](consulting_response.md#컨설팅-보완-대응), [연말 제출 준비 현황](year_end_status.md).
 - 원문 목차·현재 대응·반영 위치·후속 계획: [컨설팅 보완 대응](consulting_response.md#컨설팅-보완-대응).
 - 실패 원인·수정·재검증: [5번 대응](consulting_response.md#5-실패-분석과-변경재검증).
 - 10월 31일 개선 자료: `DAMOS_results/perception_relative_20261031_v1/`의 `final_results.json`, `metadata.tar.gz`, `backup_manifest.json`. 기존 제출 ZIP과 별도 보관.
