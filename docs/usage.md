@@ -1,8 +1,11 @@
 # DAMOS 사용법
 
-문서 갱신: 2026-10-31. 이 문서는 환경 설정·코드 경로·실행·결과 확인 전용. 연구·구현 내용은 [2025년](2025.md)·[2026년](2026.md), 평가 기준·증빙은 [성능지표](metrics.md), 남은 작업은 [준비 현황](status.md) 참조.
+문서 갱신: 2026-11-04. 이 문서는 환경 설정·코드 경로·실행·결과 확인 전용. 연구·구현 내용은 [2025년](2025.md)·[2026년](2026.md), 평가 기준·증빙은 [성능지표](metrics.md), 남은 작업은 [준비 현황](status.md) 참조.
 
 ## vvu에서 시작
+
+- 실제 프로젝트 루트: `/data/DAMOS`.
+- 기존 `/home/vvu/vv/DAMOS`는 `/data/DAMOS`로 연결되는 심볼릭 링크. 아래 명령 변경 불필요.
 
 ```bash
 ssh vvu
@@ -354,6 +357,26 @@ git -C /home/vvu/vv/DAMOS/_git/STL_DAMOS diff --check
 
 실행 경로를 바꿨다면 단일 S5도 실제 확인. Python 시험만으로 C++·asset·실제 카메라 갱신까지 검증됐다고 보지 않음. 문서만 수정한 경우 검증 범위도 문서 검사로 구분.
 
+### /data 이전 후 검증
+
+- 점검일: **2026-11-04**.
+- 전체 복사·SHA-256·권한·시간·링크 검증 후 기존 원본 정리. 루트 약181GiB 확보, 사용률 92% → 50%.
+
+| 검사 | 결과 |
+|---|---|
+| 문법 | Python 107개·셸 7개 통과 |
+| 회귀시험 | 293/293 통과, skip 0. 실제 Groth16 포함 |
+| S1~S9 | 9/9 생성·감시자 배치·모빌리티당 카메라 6개 확인 |
+| 3종 동시·2회 반복 | 2/2 통과 |
+| 실제 CUDA·BEV·ZKP 공유 | 3/3 통과, `relative-v3` 적용, 이번 실행 최대 1.714초 |
+| S5 고장 대응 | 기본 날씨 4 × 고장 15, 60/60 통과 |
+| 독립 감사 | 처리 420회·Groth16 증명 840개 검사 통과 |
+
+- 실행 점검 당시 기존 코드·모델·평가자료·영상 등 18,216개 파일의 해시 유지. 운영 코드 수정 없음, 테스트 서버 종료 확인.
+- 이전 후 기능·회귀 점검이며 기존 100건 탐지·135회 처리시간 평가 결과는 변경하지 않음.
+- 이전 기록: `/data/.damos_migration_20261104/summary.json`.
+- 코드 검증 기록: `/data/.damos_code_check_20261104/final_summary.json`.
+
 제출 ZIP 메타데이터 재계산은 CARLA·모델 재실행 없이 Python 표준 라이브러리로 수행. 각 ZIP을 별도 폴더에 풀고 해당 루트에서 실행:
 
 ```bash
@@ -405,7 +428,7 @@ python -X utf8 -B tools/verify_metric3_retest.py .
 
 **저장소 성격:**
 
-- `/home/vvu/vv/DAMOS`와 같은 상대 경로의 **source overlay**.
+- `/data/DAMOS`와 같은 상대 경로의 **source overlay**. 기존 `/home/vvu/vv/DAMOS` 경로도 동일한 폴더로 연결.
 - 전체 CARLA/Unreal·Scenic checkout·커스텀 assets는 별도 필요.
 - 가중치·가상환경·데이터셋도 별도 필요.
 - clone만으로 실행 불가.
@@ -436,9 +459,10 @@ STL_DAMOS/
 
 **작업·보존 위치:**
 
-- 주작업 루트: `/home/vvu/vv/DAMOS`.
-- 명령 실행 위치: `Carla-0.9.16-source`.
-- Git mirror: `_git/STL_DAMOS`.
+- 실제 저장 루트: `/data/DAMOS`.
+- 기존 작업 경로: `/home/vvu/vv/DAMOS` → `/data/DAMOS` 링크 유지.
+- 명령 실행 위치: `/home/vvu/vv/DAMOS/Carla-0.9.16-source` (`/data/DAMOS/Carla-0.9.16-source`와 동일).
+- Git mirror: `/data/DAMOS/_git/STL_DAMOS`.
 - 원시 입력·BEV·로그·영상·시험 원본은 Git에 미업로드.
 - Track 2 모델·실행 소스는 별도 제출 패키지에 포함.
 - Track 2를 이 트리의 BEV 모듈로 간주하지 않음.

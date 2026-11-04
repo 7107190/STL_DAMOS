@@ -4,6 +4,12 @@
 
 **CARLA·Scenic → RGB·LiDAR 인지 → Groth16 직접 공유 → Ego BEV 병합·탐지**
 
+## vvu 실행환경
+
+- 실제 저장 위치: `/data/DAMOS`.
+- 기존 `/home/vvu/vv/DAMOS`는 위 위치를 가리키는 링크. 기존 실행 명령 그대로 사용.
+- ✅ 2026-11-04 이전 후 회귀 293건·S1~S9·고장 대응 60조건 통과. [경로·검증 결과](docs/usage.md#data-이전-후-검증).
+
 ## 연도별 수행내용
 
 | 연도 | 주요 성과 | 상세 |
@@ -77,5 +83,5 @@
 | [준비 현황](docs/status.md) | 남은 작업·담당·연말 제출자료 |
 | [회의 기록](docs/meetings/) | 날짜별 회의 내용·후속 작업 |
 
-기준일: 2026-10-31. 기획 기준: [Notion SDV / DAMOS](https://www.notion.so/32d7d69010ae805b8b88c6175f5d9898).
+연구·업무 현황 기준일: 2026-10-31. 기획 기준: [Notion SDV / DAMOS](https://www.notion.so/32d7d69010ae805b8b88c6175f5d9898).
 새 장비는 [설치 안내](docs/usage.md#새-컴퓨터-설정) 확인. Git clone 외에 CARLA·assets·가중치·환경 필요.
