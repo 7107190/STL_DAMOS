@@ -199,11 +199,12 @@
 
 **2·3번 신규 실행 원본:**
 
-- Goosebumps: `/home/vv/vv/DAMOS/results/full_evaluation_export_20261111/`.
+- NAS: `Storage/Data/7107190/Damos/5090_completed_runs_20261114/completed_runs.tar.zst`.
+- 압축 내부 제출자료: `results/full_evaluation_export_20261111/`. 2026-11-14 검증 후 Goosebumps의 완료 데이터 사본 삭제. 실행 코드·모델·엔진 유지.
 - 2번 실행 ID: `live_metric2_20261111T101806_367bf489`.
 - 3번 실행 ID: `live_metric3_20261111T101806_78b40c40`.
-- 서버 원본 ZIP: `/home/vv/vv/DAMOS/results/DAMOS_full_evaluation_20261111.zip`.
-- 서버 ZIP SHA-256: `af10335844a8c51c7b9cdafd3794396575eb1cf3085f9c2ceaa8e217088beda8`.
+- 압축 내부 원본 ZIP: `results/DAMOS_full_evaluation_20261111.zip`.
+- 원본 ZIP SHA-256: `af10335844a8c51c7b9cdafd3794396575eb1cf3085f9c2ceaa8e217088beda8`.
 
 **10월 성능지표 보존자료:**
 

@@ -19,10 +19,13 @@ bash start_metric2.sh
 - 공통 CARLA·Unreal·맵·센서 설정: `shared/runtime/`. 각 평가 폴더에 엔진·가상환경 사본이나 링크 없음.
 - 공통 Python: `shared/venvs/simulation/`. PyTorch 등 기반 의존성은 `shared/venvs/base/` 참조.
 - 공통 경로·모델·Node 설정: `shared/env.sh`. GPU 작업 잠금도 `shared/locks/` 사용.
-- 최신 제출자료: `results/full_evaluation_export_20261111/`.
-- 과거 ZIP 재집계는 `--metadata` 옵션. 신규 CARLA·추론 실행과 구분.
+- 완료된 11월 11일 평가 원본·제출자료·기존 메타데이터는 NAS `Storage/Data/7107190/Damos/5090_completed_runs_20261114/completed_runs.tar.zst`에 보존. 서버 사본 삭제 완료.
+- 압축 내부 경로는 기존 프로젝트 기준 유지. 제출자료는 내부 `results/full_evaluation_export_20261111/`.
+- `metric2/reports/`, `metric3/reports/`와 작업 폴더는 비어 있으며 신규 평가부터 다시 저장. 뷰어는 시험 대기로 시작.
+- 과거 ZIP 재집계는 필요한 `metadata/inputs/` 자료를 선택 복원한 후 `--metadata` 옵션 사용. 신규 CARLA·추론 실행과 구분.
 - 2026-11-14 홈의 `DAMOS`, `DAMOS_bench`, `DAMOS_live`, `carlaCache` 링크와 구 `bench/live` 컨테이너 폐지. 새 루트만 사용.
-- 보존할 과거 데이터·중간 결과는 NAS `Storage/Data/7107190/Damos/5090_cleanup_20261114/`에 검증 후 서버에서 정리.
+- 이전 정리 자료는 같은 NAS 아래 `5090_cleanup_20261114/`, `5090_shared_runtime_20261114/`에 보존.
+- 완료 자료 이관은 압축파일 SHA-256 및 내부 전체 파일별 SHA-256 검증 후 삭제. 코드·모델·CARLA·Unreal·가상환경 유지.
 - 평가 당시 JSON·CSV·증명은 수정하지 않음. 뷰어에서 과거 경로를 현재 위치로 변환.
 
 ## vvu에서 시작
