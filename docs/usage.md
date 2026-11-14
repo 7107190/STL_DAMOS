@@ -15,7 +15,10 @@ bash start_metric2.sh
 - 신규 전체 평가: 해당 명령에 `--full` 추가. 화면 조회만 할 때는 생략.
 - 가상환경 수동 활성화 불필요. 기본 설정에서는 두 항목의 시험을 동시에 실행하지 않음.
 - 2번 화면: `http://127.0.0.1:8762/`, 3번 화면: `http://127.0.0.1:8763/`.
-- 실제 코드·엔진·원본: `metric2/`, `metric3/`. 공통 Python·모델·Node는 `shared/`.
+- 평가 코드·설정·결과: `metric2/`, `metric3/`.
+- 공통 CARLA·Unreal·맵·센서 설정: `shared/runtime/`. 각 평가 폴더에 엔진·가상환경 사본이나 링크 없음.
+- 공통 Python: `shared/venvs/simulation/`. PyTorch 등 기반 의존성은 `shared/venvs/base/` 참조.
+- 공통 경로·모델·Node 설정: `shared/env.sh`. GPU 작업 잠금도 `shared/locks/` 사용.
 - 최신 제출자료: `results/full_evaluation_export_20261111/`.
 - 과거 ZIP 재집계는 `--metadata` 옵션. 신규 CARLA·추론 실행과 구분.
 - 2026-11-14 홈의 `DAMOS`, `DAMOS_bench`, `DAMOS_live`, `carlaCache` 링크와 구 `bench/live` 컨테이너 폐지. 새 루트만 사용.
