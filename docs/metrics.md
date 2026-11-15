@@ -235,5 +235,5 @@
 
 - [사용법](usage.md): 설치·운영.
 - [2026년 수행내용](2026.md): 고장 대응·실패 분석·개선 검증.
-- [런타임 안내](../Carla-0.9.16-source/_DAMOS/README.md): 내부 경로.
+- [런타임 안내](../shared/runtime/Carla-0.9.16-source/_DAMOS/README.md): 내부 경로.
 - 기존 실패 기록·원본 actor/시각 대응·제출 ZIP을 결과에 맞춰 덮어쓰지 않음.

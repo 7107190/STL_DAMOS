@@ -1,2 +1,5 @@
 # Preserve the handed-over source bytes; this file contains an upstream EOL space.
-Carla-0.9.16-source/_DAMOS/vendor/yerin_bev/viz_carla.py whitespace=-blank-at-eol
+shared/runtime/Carla-0.9.16-source/_DAMOS/vendor/yerin_bev/viz_carla.py whitespace=-blank-at-eol
+# Preserve existing deployment source bytes, including its final blank lines.
+metric2/app/live_engine.py whitespace=-blank-at-eof
+metric3/app/m3_driving.py whitespace=-blank-at-eof

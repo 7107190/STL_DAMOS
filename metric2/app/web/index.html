@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>DAMOS · CARLA 실구동 처리속도 시험</title>
+  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/source-reference.css">
+  <script defer src="/vendor/lucide.min.js"></script>
+  <script defer src="/app.js"></script>
+  <script defer src="/source-reference.js"></script>
+  <script defer src="/report-links.js"></script>
+</head>
+<body>
+  <main class="workspace">
+    <header class="masthead">
+      <div class="brand"><span class="brand-mark">D</span><strong>DAMOS</strong><span class="brand-divider"></span><span>성능시험</span></div>
+      <div class="connection"><span id="connectionDot" class="dot"></span><span id="connectionText">연결 확인 중</span><span id="serverHost" class="host">호스트 확인 중</span></div>
+    </header>
+    <div class="page-heading"><div><p class="eyebrow">성능지표 02 · 실제 CARLA 입력</p><h1>개별 모빌리티 시스템 시뮬레이션 처리속도</h1></div><div class="criterion"><span>판정 기준</span><strong>최대 18초 이내</strong></div></div>
+    <section class="toolbar" aria-label="시험 실행 및 결과 선택">
+      <label class="report-control"><span>CARLA 실구동 기록</span><select id="history" aria-label="실행 기록 선택"><option>실행 기록 없음</option></select></label>
+      <div class="run-controls">
+        <fieldset class="segmented"><legend class="sr-only">실행 범위</legend><label><input type="radio" name="mode" value="full" checked><span>전체 135회</span></label><label><input type="radio" name="mode" value="three"><span>누적 3회</span></label><label><input type="radio" name="mode" value="five"><span>누적 5회</span></label><label><input type="radio" name="mode" value="single"><span>대표 1회</span></label></fieldset>
+        <select id="runScenario" aria-label="대표 실행 시나리오" disabled><option>S1</option><option>S2</option><option>S3</option><option>S4</option><option>S5</option><option>S6</option><option>S7</option><option>S8</option><option>S9</option></select>
+        <button id="start" class="primary"><i data-lucide="play"></i><span>시험 실행</span></button>
+        <button id="stop" class="icon-button danger" title="현재 시험 중지" aria-label="현재 시험 중지" disabled><i data-lucide="square"></i></button>
+        <button id="refresh" class="icon-button" title="결과 새로고침" aria-label="결과 새로고침"><i data-lucide="refresh-cw"></i></button>
+        <div class="download-control"><button id="download" class="icon-button" title="결과 다운로드" aria-label="결과 다운로드" aria-expanded="false"><i data-lucide="download"></i></button><div id="downloadMenu" class="download-menu" hidden><a id="csvDownload">회차·단계별 CSV</a><a id="jsonDownload">원본 계측 JSON</a></div></div>
+      </div>
+    </section>
+    <div id="error" class="error-banner" role="alert" hidden></div>
+    <nav id="reportLinks" aria-label="결과 문서" style="display:flex;gap:20px;padding:12px 0"><a id="summaryReport">전체 집계</a><a id="recordsReport">전체 건별 기록</a><a id="summaryCsv">집계 CSV</a></nav>
+    <section class="result-band" aria-label="전체 측정 결과">
+      <div><span class="stat-label">측정 회차</span><div class="stat"><strong id="processed">—</strong><span id="expected">/ —</span></div><small id="scope">실행 기록 확인 중</small></div>
+      <div><span class="stat-label">Ego 최대 처리시간</span><div class="stat"><strong id="maximum">—</strong><span>초</span></div><small id="average">평균 —초</small></div>
+      <div><span class="stat-label">정상 완료</span><div class="stat"><strong id="normal">—</strong><span>회</span></div><small id="within">18초 이내 —회</small></div>
+      <div><span class="stat-label">사후 증명 재검증</span><div class="stat"><strong id="proofs">—</strong><span id="proofExpected">/ —</span></div><small>양방향 Groth16 · 회차당 2개</small></div>
+    </section>
+    <div class="execution-strip"><div class="execution-state"><span id="statusBadge" class="status-badge neutral">연결 중</span><span id="phase">—</span></div><div class="execution-meta"><span id="runDate">—</span><span id="timeCoverage">시각 기록 —</span></div></div>
+    <div class="run-progress" aria-label="전체 측정 진행률"><div id="progressFill"></div></div>
+    <div class="primary-grid">
+    <section class="live-scene" aria-label="실제 CARLA 실행 장면">
+      <div class="section-heading"><h2>CARLA 실행 장면 <span id="sceneStatus" class="count">대기</span></h2><span id="sceneFrame" class="unit">현재 장면 프레임 —</span></div>
+      <div class="live-scene-grid"><div class="scene-image"><img id="liveScene" alt="현재 실행 중인 CARLA의 실제 RGB 센서 장면"><div id="sceneEmpty" class="scene-empty">CARLA 실행 대기</div></div><div class="scene-context"><span class="eyebrow">현재 실행</span><h2 id="sceneScenario">—</h2><dl><div><dt>시뮬레이션 시각</dt><dd id="sceneTime">—</dd></div><div><dt>Ego</dt><dd id="sceneEgo">—</dd></div><div><dt>입력원</dt><dd>현재 CARLA 센서</dd></div><div><dt>측정 입력 프레임</dt><dd id="processingFrame">—</dd></div></dl><span id="sceneFreshness" class="unit">장면 수신 대기</span></div></div>
+    </section>
+    <section class="analysis-grid" aria-label="선택 회차 처리 과정">
+      <div class="stage-analysis">
+        <div class="section-heading"><h2>프로세스별 처리시간</h2><div class="selection"><span id="selectedRound">회차 선택 대기</span><label class="follow"><input id="follow" type="checkbox"><span>최신 회차</span></label></div></div>
+        <div class="stage-head"><div class="stage-label-head">선택 회차 · 단위 ms</div><div class="node-heading"><span class="legend ego"></span><strong>Ego</strong><span id="egoActor">—</span><b id="egoTotal">—초</b></div><div class="node-heading"><span class="legend observer"></span><strong>감시자</strong><span id="observerActor">—</span><b id="observerTotal">—초</b></div></div>
+        <div id="stages" class="stages"><div class="empty">회차 계측 대기</div></div>
+        <div class="stage-foot"><i data-lucide="info"></i><span>Ego·감시자는 병렬 수행. 두 노드의 시간을 합산하지 않음.</span></div>
+        <details class="subtimings"><summary>증명 수학 연산 상세 <i data-lucide="chevron-down"></i></summary><div id="subtimings">—</div></details>
+      </div>
+    </section>
+    </div>
+    <details class="trend-details"><summary>회차별 처리시간 추이 <i data-lucide="chevron-down"></i></summary>
+      <aside class="trend-panel">
+        <div class="section-heading"><h2>회차별 전체 처리시간</h2><span class="unit">초</span></div>
+        <div id="trend" class="trend" aria-label="회차별 Ego 처리시간 그래프"></div>
+        <dl class="trend-stats"><div><dt>최솟값</dt><dd id="minimum">—</dd></div><div><dt>평균</dt><dd id="trendAverage">—</dd></div><div><dt>최댓값</dt><dd id="trendMaximum">—</dd></div></dl>
+        <div class="context-grid"><div><span>평가 대상</span><strong>Ego 1대</strong></div><div><span>전송 구조</span><strong>Ego ↔ 감시자</strong></div><div><span>실제 증명</span><strong id="backend">—</strong></div><div><span>통신 환경</span><strong>TCP loopback</strong></div></div>
+      </aside>
+    </details>
+    <section class="records" aria-label="회차별 계측 기록">
+      <div class="section-heading"><h2>회차별 실행 기록 <span id="recordCount" class="count">0</span></h2><div class="filters"><select id="filterScenario" aria-label="시나리오 필터"><option value="all">모든 상황</option><option>S1</option><option>S2</option><option>S3</option><option>S4</option><option>S5</option><option>S6</option><option>S7</option><option>S8</option><option>S9</option></select><select id="filterStatus" aria-label="판정 필터"><option value="all">모든 판정</option><option value="passed">통과</option><option value="auditing">검증 중</option><option value="failed">확인 필요</option></select><button id="sortTime" class="icon-button" title="처리시간순 정렬" aria-label="처리시간순 정렬"><i data-lucide="arrow-down-wide-narrow"></i></button></div></div>
+      <div class="table-scroll"><table><thead><tr><th>평가번호</th><th>상황</th><th>차수 · 반복</th><th>시작 시각 <span>KST</span></th><th>종료 시각 <span>KST</span></th><th class="numeric">처리시간 <span>초</span></th><th>증명 검증</th><th>판정</th></tr></thead><tbody id="rows"><tr><td colspan="8" class="empty">측정 기록 확인 중</td></tr></tbody></table></div>
+    </section>
+    <section class="evidence" aria-label="선택 회차 센서 입력 및 BEV 출력">
+      <div class="section-heading"><h2>선택 회차 입력·출력</h2><span id="frameLabel" class="unit">프레임 —</span></div>
+      <div class="evidence-grid">
+        <figure><div class="image-heading"><figcaption>처리 입력 시점 CARLA 장면</figcaption><button class="icon-button zoom" data-kind="scene_input" aria-label="처리 입력 장면 확대" title="처리 입력 장면 확대"><i data-lucide="maximize-2"></i></button></div><img id="inputScene" alt="선택 처리 회차 센서 입력과 동일 CARLA 프레임의 실제 장면"></figure>
+        <figure><div class="image-heading"><figcaption>Ego 정면 카메라</figcaption><button class="icon-button zoom" data-kind="ego_camera" aria-label="Ego 카메라 확대" title="Ego 카메라 확대"><i data-lucide="maximize-2"></i></button></div><img id="egoCamera" alt="선택 회차 Ego 정면 RGB"></figure>
+        <figure><div class="image-heading"><figcaption>감시자 정면 카메라</figcaption><button class="icon-button zoom" data-kind="observer_camera" aria-label="감시자 카메라 확대" title="감시자 카메라 확대"><i data-lucide="maximize-2"></i></button></div><img id="observerCamera" alt="선택 회차 감시자 정면 RGB"></figure>
+        <figure class="bev-figure"><div class="image-heading"><figcaption>병합 BEV · 장애물 존재</figcaption><button class="icon-button zoom" data-kind="merged_bev" aria-label="병합 BEV 확대" title="병합 BEV 확대"><i data-lucide="maximize-2"></i></button></div><img id="mergedBev" alt="선택 회차 실제 병합 BEV 장애물 존재 그리드"></figure>
+      </div>
+    </section>
+    <details id="calculationReference" class="calculation-reference"><summary><i data-lucide="file-code-2"></i><span>계산식·판정 코드</span><i data-lucide="chevron-down"></i></summary><div class="calculation-content">
+      <dl class="calculation-formulas"><div><dt>회차별 처리시간</dt><dd><code>Tᵢ = (ended_ns − started_ns) ÷ 1,000,000,000</code> [초]</dd></div><div><dt>대표값</dt><dd><strong>전체 정상 처리 회차의 최댓값</strong> · <code>Tmax = max(Tᵢ)</code></dd></div><div><dt>최종 판정</dt><dd>S1~S9 × 3차수 × 새 입력 5회 = <strong>135회 정상 완료</strong> 및 <strong>모든 회차 18초 이내</strong>. 회차별 증명 재검증 확인.</dd></div><div><dt>계측 구간</dt><dd>현재 원시 센서 입력 준비 후 IPC 전달 직전 → 전처리·인지·증명 생성·송수신·검증 → <strong>Ego BEV 병합 완료</strong></dd></div><div><dt>계측 제외</dt><dd>센서 취득 대기, 모델·키 초기화/워밍업, 증빙 해시·이미지 저장, 사후 증명 검증, 경로계획</dd></div></dl>
+      <p class="calculation-unit">1,000,000,000 나노초 = 1초 · perf_counter_ns 단조시계 · Ego 기준</p>
+      <div class="source-heading"><h3>실제 계산 코드</h3><label for="sourceSection">확인 부분<select id="sourceSection" aria-label="확인할 계산 코드"></select></label></div><div class="source-identity"><span id="sourceStatus" class="source-status">코드 확인 대기</span><span id="sourceFunction" class="source-function">—</span></div><p id="sourceFile" class="source-file">—</p><p id="sourceError" class="source-error" role="status" hidden></p><pre id="sourceCode" class="source-code" tabindex="0" aria-label="서버 실제 계산 코드 원문"></pre><details class="source-hashes"><summary>선택 실행·코드 SHA-256</summary><dl><div><dt>선택 실행</dt><dd id="sourceRun">—</dd></div><div><dt>현재 파일</dt><dd id="sourceCurrentHash">—</dd></div><div><dt>실행 기록</dt><dd id="sourceRecordedHash">—</dd></div></dl></details>
+    </div></details>
+    <details class="protocol"><summary>시험 조건·계측 근거 <i data-lucide="chevron-down"></i></summary><dl><div><dt>계측 구간</dt><dd>현재 CARLA 원시 RGB/LiDAR 준비 후 IPC 전달 직전 → Ego BEV 병합 완료</dd></div><div><dt>입력</dt><dd>각 노드 RGB 6방향 × 새 4프레임 + 현재 LiDAR 1프레임</dd></div><div><dt>실행 조건</dt><dd>Goosebumps에서 CARLA·인지·Groth16·TCP·병합 동시 구동. CARLA 렌더링 부하는 측정 중에도 유지.</dd></div><div><dt>계측 제외</dt><dd>센서 이력 대기, 모델·키 초기화/워밍업, 증빙 해시·저장, 사후 검증, 경로계획</dd></div><div><dt>처리시간 시계</dt><dd>perf_counter_ns · 동일 단조시계의 종료−시작</dd></div><div><dt>시작·종료 시각</dt><dd>실제 세계시계 앵커로 KST 표시.</dd></div><div><dt>모델 SHA-256</dt><dd id="modelHash">—</dd></div><div><dt>결과 경로</dt><dd id="sourcePath">—</dd></div></dl></details>
+    <footer><span>평가 범위: 처리속도 · 탐지정확도는 별도 평가</span><span id="updatedAt">—</span></footer>
+  </main>
+  <dialog id="imageDialog"><div class="dialog-toolbar"><strong id="dialogTitle"></strong><button id="closeDialog" class="icon-button" aria-label="이미지 닫기" title="닫기"><i data-lucide="x"></i></button></div><img id="dialogImage" alt="선택 이미지 확대"></dialog>
+</body>
+</html>
