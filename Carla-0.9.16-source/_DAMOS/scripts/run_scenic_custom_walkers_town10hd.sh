@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 ENV_SH="$ROOT/_DAMOS/custom_walkers/ue4_env.sh"
-PYTHON_BIN="${CARLA_PYTHON_BIN:-/home/vvu/anaconda3/envs/carla4/bin/python}"
+PYTHON_BIN="${CARLA_PYTHON_BIN:-${DAMOS_PYTHON:-/home/vvu/anaconda3/envs/carla4/bin/python}}"
 RUNNER="$SCRIPT_DIR/run_scenic_with_custom_walkers.py"
 LOG_DIR="$ROOT/_DAMOS/logs"
 LOG_FILE="$LOG_DIR/scenic_custom_walkers_town10hd.log"
@@ -35,7 +35,7 @@ MAX_ANCHOR_PAIRS=""
 MAX_DELIVERYBOTS=0
 MAX_HUMANOIDS=0
 ATTACH_OBSERVER_CAMERAS=1
-OBSERVER_CAMERA_CONFIG="/home/vvu/vv/DAMOS/sensor_config.txt"
+OBSERVER_CAMERA_CONFIG="${DAMOS_SENSOR_CONFIG:-$ROOT/../sensor_config.txt}"
 SAVE_TRAJECTORY_REPORT=1
 SAVE_ACTOR_CAMERA_CAPTURES=0
 SAVE_OBSERVER_SCENE_CAPTURES=0
@@ -584,6 +584,11 @@ if [[ "$QUALITY_LEVEL" != "Low" && "$QUALITY_LEVEL" != "Epic" ]]; then
   exit 1
 fi
 
+if [[ -n "${DAMOS_RENDER_ADAPTER:-}" && ! "$DAMOS_RENDER_ADAPTER" =~ ^[0-9]+$ ]]; then
+  echo "DAMOS_RENDER_ADAPTER must be a non-negative adapter index." >&2
+  exit 1
+fi
+
 sharing_args=()
 bev_args=()
 seed_args=()
@@ -613,7 +618,7 @@ if [[ "$LIVE_BEV_FUSION" -eq 1 || "$COMPARE_BEV_INPUTS" -eq 1 || "$COLLECT_BEV_D
     echo "Run --live-bev-fusion separately from --save-bev-inputs." >&2
     exit 1
   fi
-  PYTHON_BIN="${DAMOS_BEV_PYTHON:-/home/vvu/vv/DAMOS/.venvs/bev/bin/python}"
+  PYTHON_BIN="${DAMOS_BEV_PYTHON:-${DAMOS_PYTHON:-/home/vvu/vv/DAMOS/.venvs/bev/bin/python}}"
   export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
 fi
 if [[ "$ATTACH_BEV_SENSORS" -eq 1 ]]; then
@@ -748,6 +753,10 @@ if [[ -z "$SERVER_PID" ]]; then
     "-carla-rpc-port=$PORT"
     "-quality-level=$QUALITY_LEVEL"
   )
+
+  if [[ -n "${DAMOS_RENDER_ADAPTER:-}" ]]; then
+    server_cmd+=("-graphicsadapter=$DAMOS_RENDER_ADAPTER")
+  fi
 
   if [[ "$HEADLESS" -eq 1 ]]; then
     server_cmd+=(-nullrhi -nosound)

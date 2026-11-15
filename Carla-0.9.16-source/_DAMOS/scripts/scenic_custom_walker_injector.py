@@ -58,7 +58,8 @@ from custom_walker_runtime import (
 SOURCE_ROOT = pathlib.Path(__file__).resolve().parents[2]
 DEFAULT_SCENIC_ROOT = SOURCE_ROOT
 DEFAULT_SCENIC_FILE = SOURCE_ROOT / "_DAMOS" / "_scenarios" / "S_.scenic"
-DEFAULT_SCENIC_BIN = pathlib.Path("/home/vvu/anaconda3/envs/carla4/bin/scenic")
+DEFAULT_SCENIC_BIN = pathlib.Path(os.environ.get(
+    "DAMOS_SCENIC_BIN", "/home/vvu/anaconda3/envs/carla4/bin/scenic"))
 DEFAULT_REPORT_DIR = SOURCE_ROOT / "_DAMOS" / "reports"
 DEFAULT_SENSOR_CONFIG = SOURCE_ROOT.parent / "sensor_config.txt"
 SCENIC_SCENARIO_PATTERN = re.compile(r"^(S[_0-9]+(?:#\d+)?):")

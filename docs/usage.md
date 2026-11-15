@@ -1,6 +1,24 @@
 # DAMOS 사용법
 
-문서 갱신: 2026-11-14. 이 문서는 환경 설정·코드 경로·실행·결과 확인 전용. 연구·구현 내용은 [2025년](2025.md)·[2026년](2026.md), 평가 기준·증빙은 [성능지표](metrics.md), 남은 작업은 [준비 현황](status.md) 참조.
+문서 갱신: 2026-11-15. 이 문서는 환경 설정·코드 경로·실행·결과 확인 전용. 연구·구현 내용은 [2025년](2025.md)·[2026년](2026.md), 평가 기준·증빙은 [성능지표](metrics.md), 남은 작업은 [준비 현황](status.md) 참조.
+
+## Goosebumps에서 DAMOS 일반 실행
+
+```bash
+cd /home/vv/vv/DAMOS
+bash start_damos.sh \
+  --port 2840 --n-scenarios 3 --runs 1 \
+  --scenic-time 300 --realtime-factor 1.0 \
+  --live-bev-fusion --bev-rounds 3 --bev-radius-m 60 \
+  --report-dir /home/vv/vv/DAMOS/runs/current
+```
+
+- 평가 화면과 별개인 일반 시스템 실행. 랜덤 3개 동시 생성·Scenic Ego 주행·감시자 배치·RGB/LiDAR·근거리 BEV 추론/공유/병합.
+- 창 없이 실행할 때 `--offscreen` 추가. 기본 품질 Low, 날씨 효과 확인은 `--quality-level Epic` 사용.
+- `shared/env.sh` 자동 적용. Python·Scenic·센서 설정을 공통 경로에서 선택하며 `DAMOS_RENDER_ADAPTER` 지정도 지원.
+- 11월 15일 실제 점검: S9·S4·S2, Ego 약 44.6m 주행, 인도 감시자 12대·센서 91개, 공유·병합 3회 및 실제 증명 6개 재검증 통과.
+- 해당 점검은 전체 고장·날씨 조합 전수시험과 별개. 자료는 NAS `Storage/Data/7107190/Damos/5090_system_check_20261115/`에 보존.
+- `runs/`는 일반 실행 산출물 위치. 완료 자료는 NAS 검증 후 서버에서 정리.
 
 ## Goosebumps에서 2·3번 실행
 
