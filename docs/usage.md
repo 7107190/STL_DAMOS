@@ -24,49 +24,92 @@ git push origin main
 
 ## 폴더 구성
 
+5090의 실제 작업 폴더 기준. 엔진·설치 라이브러리 내부의 세부 폴더는 생략.
+
 ```text
-DAMOS/
-├── README.md
-├── docs/                       연도별 수행내용·성능지표·계획·회의
-├── start_damos.sh               일반 시스템 실행
-├── start_metric2.sh             처리속도 화면
-├── start_metric3.sh             탐지정확도 화면
-├── shared/
+/home/vv/vv/DAMOS/
+├── README.md                   프로젝트 전체 개요·문서 안내
+├── start_damos.sh              일반 DAMOS 실행
+├── start_metric2.sh            처리속도 평가 실행
+├── start_metric3.sh            탐지정확도 평가 실행
+├── system.drawio              시스템 구성도
+├── shared/                    공통 실행 자원
 │   ├── runtime/
-│   │   ├── Carla-0.9.16-source/  CARLA 프로젝트와 DAMOS 코드
-│   │   ├── UnrealEngine_4.26/    공통 엔진
-│   │   └── sensor_config.txt
-│   ├── models/                 BEV 가중치, Git 제외
-│   ├── venvs/                  base·simulation 실행환경, Git 제외
-│   ├── python/                 Python 실행 파일, Git 제외
-│   ├── runtime_overlay/        Mamba 등 추론 의존성, Git 제외
-│   ├── tools/                  Node 등 실행 도구, Git 제외
-│   ├── cache/                  지도 캐시, Git 제외
-│   ├── locks/                  실행 잠금, Git 제외
-│   ├── env.sh                  공통 경로·모델 설정
-│   └── damos_paths.py          공통 경로 조회
-├── metric/
-│   ├── metric2/                처리속도 평가·실행 중 결과
-│   └── metric3/                탐지정확도 평가·실행 중 결과
-├── metadata/                   보존 ZIP 재집계 도구
-├── DAMOS-Observer-Research/     별도 연구 Git·모델·기존 실험 자료
-└── runs/                       일반 실행 중 결과
+│   │   ├── Carla-0.9.16-source/  CARLA 프로젝트·DAMOS 구현 코드
+│   │   ├── UnrealEngine_4.26/    CARLA 구동 엔진
+│   │   └── sensor_config.txt    모빌리티별 센서 부착 설정
+│   ├── models/                BEV 인지 모델 가중치
+│   ├── python/                가상환경 구동용 Python 본체
+│   ├── venvs/                 base·simulation 가상환경·라이브러리
+│   ├── runtime_overlay/       Mamba 등 추가 추론 의존성
+│   ├── tools/                 Node·Xvfb 등 보조 실행 도구
+│   ├── cache/carla/           CARLA 지도·내비게이션 캐시
+│   ├── locks/                 GPU·작업 중복 실행 방지
+│   ├── env.sh                 공통 환경변수·모델·캐시 설정
+│   └── damos_paths.py         공통 자원 경로 계산
+├── metric/                    실제 시뮬레이션 성능평가
+│   ├── metric2/               2번 지표: 처리속도
+│   │   ├── app/               평가 코드·결과 화면
+│   │   ├── qa_tools/          실행·화면 점검 도구
+│   │   ├── .metric2_ui_jobs/  평가 작업 상태
+│   │   └── reports/           신규 평가 결과
+│   └── metric3/               3번 지표: 탐지정확도
+│       ├── app/               평가 코드·결과 화면
+│       ├── qa_tools/          실행·화면 점검 도구
+│       ├── jobs/              평가 작업 상태
+│       └── reports/           신규 평가 결과
+├── metadata/                  저장된 평가 기록 재검증·재집계
+│   ├── inputs/                평가 ZIP·해제본 입력 위치
+│   └── reports/               재집계 결과·CSV·보고 화면
+├── docs/                      연도별 성과·지표·사용법·계획
+│   ├── meetings/              회의 기록
+│   └── images/                문서에 사용하는 그림
+├── DAMOS-Observer-Research/    감시자 선택·관측 공백 복구 연구
+│   ├── src/                   연구 알고리즘·연동 코드
+│   ├── scenarios/             연구용 시나리오
+│   ├── configs/               연구 실행 설정
+│   ├── schemas/               입출력 데이터 규격
+│   ├── tests/                 연구 코드 테스트
+│   ├── examples/              예제·기록 재현
+│   ├── docs/                  연구 설계·검증 기록
+│   ├── runs/                  기존 실험·배포본·캐시·모델 자료
+│   ├── run_5090.sh            연구용 공통 Python·캐시 연결
+│   └── .git/                  Observer 별도 Git 이력
+├── runs/                      일반 DAMOS 실행 결과
+└── .git/                      DAMOS 본체 Git 이력
 ```
 
-- 일반 DAMOS 구현: `shared/runtime/Carla-0.9.16-source/_DAMOS/`.
-- GitHub도 위 상대 경로 사용. 빈 자원·결과 폴더는 `.gitkeep`으로 표시.
+- `metric/`: CARLA·모델을 새로 구동하는 평가 도구. `metadata/`: 저장된 기록의 산식 재계산·검증 도구.
+- 최상위 `runs/`와 각 평가의 `reports/`는 새 실행 결과 위치. Observer의 `runs/`에는 이전한 기존 연구 자료도 포함.
+- `shared/`는 일반 DAMOS와 평가 도구가 공유. Observer는 별도 Git을 유지하고 공통 Python·캐시를 연결.
+- DAMOS 본체 GitHub도 위 상대 경로 사용. Observer는 별도 저장소, 대용량 실행 자원은 Git 제외. 빈 자원·결과 폴더는 `.gitkeep`으로 표시.
 - Git 포함: 시나리오·Python/C++ 코드·센서 설정·평가 화면·테스트·문서·필수 ZKP 회로와 공개 증명 자산.
 - Git 제외: 엔진 전체·대형 바이너리·모델 가중치·가상환경·Node 설치본·센서 원본·BEV 결과·로그·영상·완료 시험자료.
 - `runtime_ready.json` 등 설치·검증 표시는 PC별 로컬 상태. 다른 장비에서 검증한 것으로 복사하지 않음.
 - CARLA 지도 캐시는 `shared/cache/carla/`로 통일. 공통 실행환경에서 `CARLA_CACHE_DIR` 지정, 홈의 중복 `carlaCache/` 제거.
 - 평가 폴더는 `metric/` 아래에 배치. 상위 `start_metric2.sh`·`start_metric3.sh` 명령은 그대로 사용.
 
+### 핵심 개발 코드
+
+위치: `/home/vv/vv/DAMOS/shared/runtime/Carla-0.9.16-source/_DAMOS/`.
+
+| 폴더 | 역할 |
+|---|---|
+| `_scenarios/` | S1~S9·날씨 등 Scenic 시나리오 |
+| `scripts/` | 객체·감시자 배치, 센서 수집, 인지·ZKP 공유·BEV 병합 |
+| `vendor/` | 전달받은 인지 모델 코드·ZKP 코드 |
+| `custom_walkers/` | 휴머노이드·배달로봇 구성·실행환경 설정 |
+| `carla_import/` | 커스텀 모빌리티 에셋의 CARLA 반입 준비 |
+| `unreal/` | Unreal 에셋 임포트 스크립트 |
+| `tests/` | DAMOS 구현 테스트 |
+| `logs/` | 실행 로그 |
+
 ### Observer 연구 이전
 
 - 위치: `/home/vv/vv/DAMOS/DAMOS-Observer-Research`.
 - 별도 저장소: `7107190/STL_DAMOS-Observer-Research`. 기본 DAMOS Git에서는 제외.
 - vvu 프로젝트 전체 12.55GB·파일 29,215개 해시 일치. 배포 소스·실험 기록·캐시·모델 포함.
-- 최신 연구는 `agent/5090-migration-20261116` 브랜치 사용. 기존 연구 `main`과 동결 자료 보존.
+- 이전 기준은 `agent/5090-migration-20261116` 브랜치. 이후 연구 상태·작업 브랜치는 연구 저장소의 `README.md`·`docs/STATUS.md`에서 관리. 기존 연구 `main`과 동결 자료 보존.
 - 공유 Python 사용: 연구 폴더에서 `bash run_5090.sh examples/demo.py`.
 - 최신 소스 회귀 1,920개 통과, 기존 실제 캡처 입력의 선택 결과 재현.
 - **Observer의 CARLA native 실험은 아직 5090 검증 완료가 아님.** vvu 전용 디스크·namespace·보호 설정을 별도로 준비해야 함.

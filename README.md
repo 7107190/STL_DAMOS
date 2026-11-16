@@ -6,12 +6,10 @@
 
 ## 5090 메인 실행환경
 
-- 기준 폴더: **`/home/vv/vv/DAMOS`**. 코드·`README.md`·`docs/`를 이 폴더에서 함께 관리하고 GitHub `main`에 직접 반영.
-- 일반 실행: `bash start_damos.sh`. CARLA·Unreal·가상환경·모델은 `shared/` 공통 사용. [실행 방법·폴더 구성](docs/usage.md).
-- 평가 도구: `metric/metric2/`·`metric/metric3/`. 상위 평가 실행 명령 유지, 지도 캐시는 `shared/cache/carla/` 공통 사용.
+- 기준 폴더: **`/home/vv/vv/DAMOS`**. 5090에서 코드·문서 관리.
+- 공통 실행환경·평가·문서·Observer 연구 분리. [전체 폴더 구조·역할](docs/usage.md#폴더-구성).
+- 일반 실행: `bash start_damos.sh`. [실행 방법](docs/usage.md#damos-일반-실행) · [평가 도구](docs/usage.md#23번-평가-화면).
 - ✅ 2026-11-15 일반 시스템 확인: 랜덤 이상상황 3종·Ego 주행·감시자·센서·실제 ZKP 공유·BEV 병합 정상.
-- vvu는 기존 개발·실험 환경으로 보존. 이후 코드·문서 수정 기준은 **5090**.
-- Observer 연구도 `DAMOS-Observer-Research/`로 이전. 별도 Git 유지. [이전 범위·남은 실행 설정](docs/usage.md#observer-연구-이전).
 
 ## 연도별 수행내용
 
@@ -56,10 +54,10 @@
 | [2025년](docs/2025.md) · [2026년](docs/2026.md) | 연도·서브시스템별 수행내용 |
 | [2단계 계획](docs/phase2.md) | 실물 PoC·서브시스템 역할·오류·고장·공격 검증 초안 |
 | [성능지표](docs/metrics.md) | 지표 1~4의 기준·결과·증빙 |
-| [사용법](docs/usage.md) | 환경 설정·코드 위치·실행·결과 확인 |
+| [사용법](docs/usage.md) | 폴더 구조·역할·환경 설정·실행·결과 확인 |
 | [준비 현황](docs/status.md) | 남은 작업·담당·연말 제출자료 |
 | [회의 기록](docs/meetings/) | 날짜별 회의 내용·후속 작업 |
 
-1단계 현황 갱신: 2026-11-13. 실행환경·Git 기준 갱신: 2026-11-15. 2단계 계획 갱신: 2026-11-04.
+1단계 현황 갱신: 2026-11-13. 실행환경·폴더 안내 갱신: 2026-11-16. 2단계 계획 갱신: 2026-11-04.
 기획 기준: [Notion SDV / DAMOS](https://www.notion.so/32d7d69010ae805b8b88c6175f5d9898).
 새 장비는 [설치 안내](docs/usage.md#새-컴퓨터-설정) 확인. Git clone 외에 CARLA·assets·가중치·환경 필요.
