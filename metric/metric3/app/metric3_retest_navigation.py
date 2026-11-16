@@ -2,7 +2,9 @@
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
+from damos_paths import runtime_root
+
+ROOT = runtime_root(Path(__file__).resolve().parent.parent) / 'Carla-0.9.16-source'
 
 
 def configure_route(rig, client, assignment, scenario, tm_port):

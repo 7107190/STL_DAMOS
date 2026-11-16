@@ -8,6 +8,7 @@ from pathlib import Path
 import numpy as np
 
 from report_data import atomic_json, relocated_path
+from damos_paths import project_root
 from verify_metric3_100 import independent_duration, largest_overlap
 
 
@@ -39,7 +40,7 @@ def verify(root, run, require_full=False):
         result = load(folder / "cases" / case["case_id"] / "result.json")
         assert result["status"] in ("success", "failure"), result
         assert result["returncode"] == 0 and result["source"] == protocol["source"]
-        target = relocated_path(result["output"], root.parent).resolve()
+        target = relocated_path(result["output"], project_root(root)).resolve()
         assert target.is_relative_to(folder / "cases" / case["case_id"])
         manifest, capture = load(target / "manifest.json"), load(target / "capture.json")
         assert manifest["case"] == case and manifest["gt_used_for_inference"] is False

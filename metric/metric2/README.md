@@ -17,6 +17,7 @@ bash start_metric2.sh
 - 결과: 135/135회, 최대 1.790749524초, 평균 1.667165869초.
 - 보존 원본: NAS `Storage/Data/7107190/Damos/5090_completed_runs_20261114/completed_runs.tar.zst` 내부 `metric2/reports/`, `metric2/.metric2_ui_jobs/`. 서버 완료 데이터 삭제.
 - 화면·평가 코드: `app/`, 평가 원본: `reports/`·`.metric2_ui_jobs/`.
-- 공통 엔진·센서 설정: `../shared/runtime/`. 공통 Python: `../shared/venvs/simulation/`.
-- 모델·Node·추론 의존성: `../shared/`. 이 평가 폴더에 엔진·가상환경 사본이나 링크 없음.
+- 현재 위치: `/home/vv/vv/DAMOS/metric/metric2`.
+- 공통 엔진·센서 설정: `../../shared/runtime/`. 공통 Python: `../../shared/venvs/simulation/`.
+- 모델·Node·추론 의존성: `../../shared/`. 이 평가 폴더에 엔진·가상환경 사본이나 링크 없음.
 - 구 경로의 과거 결과는 뷰어에서 현재 위치로 변환. 홈 호환 링크 불필요.

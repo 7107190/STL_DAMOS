@@ -30,7 +30,7 @@ def main():
         raise RuntimeError("Cold-start test requires port 8763 to be free")
     result=None
     with (output/"console.log").open("w") as log:
-        process=subprocess.Popen(["bash","start_metric3.sh","--scenario","S3"],cwd="/home/vv/DAMOS",env=env,
+        process=subprocess.Popen(["bash","start_metric3.sh","--scenario","S3"],cwd=ROOT,env=env,
                                  stdout=log,stderr=subprocess.STDOUT,start_new_session=True)
         try:
             deadline=time.monotonic()+600
@@ -46,7 +46,7 @@ def main():
                     if state["status"]=="complete":
                         assert state["planned"]==state["evaluated"]==1 and state["execution_errors"]==0
                         assert state["source"]=="live_carla_sensor_stream" and state["criterion_pass"] is False
-                        result={"operator_command":"cd /home/vv/DAMOS; bash start_metric3.sh --scenario S3",
+                        result={"operator_command":f"cd {ROOT}; bash start_metric3.sh --scenario S3",
                                 "run":run,"new_live_trial":True,"evaluated":state["evaluated"],"successful":state["successful"],
                                 "browser_url":url,"native_carla":True,
                                 "browser_check":"xdg-open URL intercepted; UI separately verified using isolated headless Chrome"}

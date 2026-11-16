@@ -9,6 +9,8 @@ import statistics
 import uuid
 from zoneinfo import ZoneInfo
 
+from damos_paths import project_root
+
 STAGES = [
     ('preprocess', '입력 전처리'), ('inference', '인지·BEV 생성'),
     ('protect', '증명·패킷 생성'), ('send', 'TCP 송신'),
@@ -21,15 +23,17 @@ KST = ZoneInfo('Asia/Seoul')
 def relocated_path(value, project=None):
     """Resolve old report paths without rewriting signed evaluation records."""
     path = Path(value)
-    project = Path(project) if project is not None else Path(__file__).resolve().parents[2]
+    project = Path(project) if project is not None else project_root(Path(__file__).resolve().parent.parent)
     metric_prefixes = [
-        ('/home/vv/DAMOS_live/metric2_20261106', 'metric2'),
-        ('/home/vv/DAMOS_live/metric3_20261106', 'metric3'),
-        ('/home/vv/vv/DAMOS/live/metric2_20261106', 'metric2'),
-        ('/home/vv/vv/DAMOS/live/metric3_20261106', 'metric3'),
-        (str(project / 'metric2'), 'metric2'),
-        (str(project / 'metric3'), 'metric3'),
-        ('/home/vv/DAMOS', 'metric2'),
+        ('/home/vv/DAMOS_live/metric2_20261106', 'metric/metric2'),
+        ('/home/vv/DAMOS_live/metric3_20261106', 'metric/metric3'),
+        ('/home/vv/vv/DAMOS/live/metric2_20261106', 'metric/metric2'),
+        ('/home/vv/vv/DAMOS/live/metric3_20261106', 'metric/metric3'),
+        (str(project / 'metric2'), 'metric/metric2'),
+        (str(project / 'metric3'), 'metric/metric3'),
+        (str(project / 'metric/metric2'), 'metric/metric2'),
+        (str(project / 'metric/metric3'), 'metric/metric3'),
+        ('/home/vv/DAMOS', 'metric/metric2'),
     ]
     prefixes = list(metric_prefixes)
     for prefix, _ in metric_prefixes:
@@ -150,7 +154,7 @@ class Reports:
         return candidates[0]['id'] if candidates else None
 
     def target(self, folder, row):
-        path = relocated_path(row['output'], self.root.parent).resolve()
+        path = relocated_path(row['output'], project_root(self.root)).resolve()
         if not path.is_relative_to(folder) or not path.is_dir():
             raise ValueError('Round artifact outside selected report')
         return path

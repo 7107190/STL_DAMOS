@@ -135,9 +135,10 @@ def timestamp():
 
 def capture_sources(metric, pkg, out):
     live = ROOT.parent
-    paths = [live / "metric2" / f"start_metric{metric}.sh"]
+    paths = [live / f"start_metric{metric}.sh",
+             live / "metric" / f"metric{metric}" / f"start_metric{metric}.sh"]
     if metric == 3:
-        paths.append(live / "metric3/start_metric3.sh")
+        paths.append(live / "metric/metric2/start_metric3.sh")
     paths += [Path(__file__).resolve(), pkg / "tools" / PACKAGES[metric][1]]
     if metric == 3:
         paths.append(pkg / "tools/verify_metric3_100.py")

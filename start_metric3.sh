@@ -1,3 +1,3 @@
 #!/usr/bin/env bash
 set -euo pipefail
-exec bash "$(dirname -- "${BASH_SOURCE[0]}")/metric3/start_metric3.sh" "$@"
+exec bash "$(dirname -- "${BASH_SOURCE[0]}")/metric/metric3/start_metric3.sh" "$@"

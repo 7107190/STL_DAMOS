@@ -3,6 +3,7 @@ from pathlib import Path
 import unittest
 from unittest.mock import Mock
 
+from damos_paths import runtime_root
 
 HERE = Path(__file__).resolve().parent
 
@@ -16,7 +17,7 @@ class ScopedTrafficManagers(unittest.TestCase):
         self.assertTrue(all(len(c.args) == 2 for c in calls))
 
     def test_static_freeze_uses_supplied_manager(self):
-        path = HERE.parent.parent / "shared/runtime/Carla-0.9.16-source/_DAMOS/scripts/scenic_custom_walker_injector.py"
+        path = runtime_root(HERE.parent) / "Carla-0.9.16-source/_DAMOS/scripts/scenic_custom_walker_injector.py"
         tree = ast.parse(path.read_text())
         node = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "freeze_static_ego_actor")
         namespace = {"carla": Mock()}
@@ -27,7 +28,7 @@ class ScopedTrafficManagers(unittest.TestCase):
             ego.set_autopilot.assert_called_once_with(False, port)
 
     def test_static_freeze_callers_scope_to_config_or_argument(self):
-        path = HERE.parent.parent / "shared/runtime/Carla-0.9.16-source/_DAMOS/scripts/scenic_custom_walker_injector.py"
+        path = runtime_root(HERE.parent) / "Carla-0.9.16-source/_DAMOS/scripts/scenic_custom_walker_injector.py"
         tree = ast.parse(path.read_text())
         calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call)
                  and isinstance(n.func, ast.Name) and n.func.id == "freeze_static_ego_actor"]

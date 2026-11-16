@@ -7,7 +7,8 @@ unset PYTHONHOME
 export DAMOS_RUNTIME_ROOT="$SHARED_ROOT/runtime"
 export DAMOS_PYTHON="$SHARED_ROOT/venvs/simulation/bin/python"
 export DAMOS_SCENIC_BIN="$SHARED_ROOT/venvs/simulation/bin/scenic"
-export PYTHONPATH="$SHARED_ROOT:$PROJECT_ROOT/metric2/app/core_overlay:$PROJECT_ROOT/metric2/app:$SOURCE_ROOT/_DAMOS/scripts:$SHARED_ROOT/runtime_overlay"
+export PYTHONPATH="$SHARED_ROOT:$PROJECT_ROOT/metric/metric2/app/core_overlay:$PROJECT_ROOT/metric/metric2/app:$SOURCE_ROOT/_DAMOS/scripts:$SHARED_ROOT/runtime_overlay"
+export CARLA_CACHE_DIR="$SHARED_ROOT/cache/carla"
 export PATH="$SHARED_ROOT/venvs/simulation/bin:$SHARED_ROOT/tools/node-v22.22.2-linux-x64/bin:$PATH"
 export V2V_NODE_CMD="$SHARED_ROOT/tools/node-v22.22.2-linux-x64/bin/node"
 export V2V_ZKP_BACKEND=snarkjs V2V_REQUIRE_BINDING_GATE=1

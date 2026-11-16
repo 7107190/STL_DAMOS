@@ -10,7 +10,7 @@ import time
 from report_data import atomic_json
 from process_control import identity
 from gpu_resources import renderer_args, verify_engine_gpu
-from damos_paths import runtime_root
+from damos_paths import runtime_root, shared_root
 
 
 @contextmanager
@@ -51,7 +51,7 @@ def simulation(root, job, port, offscreen=False):
                 with socket.create_connection(("127.0.0.1", port), timeout=.5):
                     pass
                 client = carla.Client("127.0.0.1", port)
-                cache = root.parent / "shared/cache/carla"
+                cache = shared_root(root) / "cache/carla"
                 cache.mkdir(parents=True, exist_ok=True)
                 client.set_files_base_folder(str(cache))
                 client.set_timeout(5)

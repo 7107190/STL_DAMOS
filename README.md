@@ -8,6 +8,7 @@
 
 - 기준 폴더: **`/home/vv/vv/DAMOS`**. 코드·`README.md`·`docs/`를 이 폴더에서 함께 관리하고 GitHub `main`에 직접 반영.
 - 일반 실행: `bash start_damos.sh`. CARLA·Unreal·가상환경·모델은 `shared/` 공통 사용. [실행 방법·폴더 구성](docs/usage.md).
+- 평가 도구: `metric/metric2/`·`metric/metric3/`. 상위 평가 실행 명령 유지, 지도 캐시는 `shared/cache/carla/` 공통 사용.
 - ✅ 2026-11-15 일반 시스템 확인: 랜덤 이상상황 3종·Ego 주행·감시자·센서·실제 ZKP 공유·BEV 병합 정상.
 - vvu는 기존 개발·실험 환경으로 보존. 이후 코드·문서 수정 기준은 **5090**.
 - Observer 연구도 `DAMOS-Observer-Research/`로 이전. 별도 Git 유지. [이전 범위·남은 실행 설정](docs/usage.md#observer-연구-이전).

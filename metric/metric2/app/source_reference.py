@@ -6,7 +6,7 @@ from pathlib import Path
 import re
 
 from report_data import relocated_path
-from damos_paths import runtime_root
+from damos_paths import project_root, runtime_root
 
 
 def catalog(root, metric):
@@ -71,7 +71,7 @@ def recorded_digest(root, metric, run, path):
         return None
     resolved = path.resolve()
     candidates = {digest for filename, digest in recorded.items()
-                  if relocated_path(filename, Path(root).resolve().parent).resolve() == resolved}
+                  if relocated_path(filename, project_root(root)).resolve() == resolved}
     if len(candidates) > 1:
         raise ValueError("Conflicting recorded source hashes")
     return next(iter(candidates), None)

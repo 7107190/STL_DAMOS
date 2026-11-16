@@ -16,6 +16,7 @@ bash start_metric3.sh
 - 11월 11일 보존 실행: `live_metric3_20261111T101806_78b40c40`.
 - 결과: 100/100건 성공, 100%, 실행 오류 0건.
 - 보존 원본: NAS `Storage/Data/7107190/Damos/5090_completed_runs_20261114/completed_runs.tar.zst` 내부 `metric3/reports/`, `metric3/jobs/`. 서버 완료 데이터 삭제.
-- 엔진·센서 설정은 `../shared/runtime/`, Python은 `../shared/venvs/simulation/` 사용.
+- 현재 위치: `/home/vv/vv/DAMOS/metric/metric3`.
+- 엔진·센서 설정은 `../../shared/runtime/`, Python은 `../../shared/venvs/simulation/` 사용.
 - 이 폴더에는 평가 코드·설정·결과만 보관. 엔진·가상환경 사본이나 링크 없음.
 - 구 경로의 과거 결과는 뷰어에서 현재 위치로 변환. 홈 호환 링크 불필요.

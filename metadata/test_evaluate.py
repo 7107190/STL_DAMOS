@@ -92,8 +92,9 @@ class EvaluationNumbers(unittest.TestCase):
     def test_source_copies_and_hashes_follow_actual_bytes(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            common = root / "metric2"
-            common.mkdir()
+            common = root / "metric/metric2"
+            common.mkdir(parents=True)
+            (root / "start_metric2.sh").write_text("#!/bin/bash\ntrue\n")
             (common / "start_metric2.sh").write_text("#!/bin/bash\ntrue\n")
             pkg = root / "metadata/inputs/metric2"
             (pkg / "tools").mkdir(parents=True)

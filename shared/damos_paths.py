@@ -2,8 +2,13 @@
 from pathlib import Path
 
 
+def project_root(metric_root):
+    parent = Path(metric_root).resolve().parent
+    return parent.parent if parent.name == 'metric' else parent
+
+
 def shared_root(metric_root):
-    return Path(metric_root).resolve().parent / 'shared'
+    return project_root(metric_root) / 'shared'
 
 
 def runtime_root(metric_root):

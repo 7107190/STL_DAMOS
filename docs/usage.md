@@ -45,8 +45,9 @@ DAMOS/
 │   ├── locks/                  실행 잠금, Git 제외
 │   ├── env.sh                  공통 경로·모델 설정
 │   └── damos_paths.py          공통 경로 조회
-├── metric2/                    평가·연동 코드·설정·실행 중 결과
-├── metric3/                    평가·연동 코드·설정·실행 중 결과
+├── metric/
+│   ├── metric2/                처리속도 평가·실행 중 결과
+│   └── metric3/                탐지정확도 평가·실행 중 결과
 ├── metadata/                   보존 ZIP 재집계 도구
 ├── DAMOS-Observer-Research/     별도 연구 Git·모델·기존 실험 자료
 └── runs/                       일반 실행 중 결과
@@ -57,6 +58,8 @@ DAMOS/
 - Git 포함: 시나리오·Python/C++ 코드·센서 설정·평가 화면·테스트·문서·필수 ZKP 회로와 공개 증명 자산.
 - Git 제외: 엔진 전체·대형 바이너리·모델 가중치·가상환경·Node 설치본·센서 원본·BEV 결과·로그·영상·완료 시험자료.
 - `runtime_ready.json` 등 설치·검증 표시는 PC별 로컬 상태. 다른 장비에서 검증한 것으로 복사하지 않음.
+- CARLA 지도 캐시는 `shared/cache/carla/`로 통일. 공통 실행환경에서 `CARLA_CACHE_DIR` 지정, 홈의 중복 `carlaCache/` 제거.
+- 평가 폴더는 `metric/` 아래에 배치. 상위 `start_metric2.sh`·`start_metric3.sh` 명령은 그대로 사용.
 
 ### Observer 연구 이전
 
@@ -191,10 +194,10 @@ full runtime·가중치는 별도 전달 필요. 전체 자동 설치 도구는 
 
 ```bash
 cd /home/vv/vv/DAMOS
-source metric2/env.sh
-"$DAMOS_PYTHON" -B -m unittest discover -s metric2/app -p 'test_*.py'
-source metric3/env.sh
-"$DAMOS_PYTHON" -B -m unittest discover -s metric3/app -p 'test_*.py'
+source metric/metric2/env.sh
+"$DAMOS_PYTHON" -B -m unittest discover -s metric/metric2/app -p 'test_*.py'
+source metric/metric3/env.sh
+"$DAMOS_PYTHON" -B -m unittest discover -s metric/metric3/app -p 'test_*.py'
 /usr/bin/python3 -B -m unittest discover -s metadata -p 'test_*.py'
 git diff --check
 ```
